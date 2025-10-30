@@ -1,25 +1,15 @@
-""" 
-rdt30.py — Implementação do protocolo RDT 3.0 (Stop-and-Wait com timer) 
-
-Descrição:
-- O RDT 3.0 é a versão final da família de protocolos RDT (Reliable Data Transfer) apresentada no livro “Redes de Computadores e a Internet” (Kurose & Ross).
-- Esta implementação segue **fielmente** o modelo do livro, **sem utilizar NAK**.
-- A confiabilidade é garantida apenas com ACKs numerados e o uso de um **timer** no emissor.
-Caso o ACK correto não seja recebido dentro do tempo limite, o pacote é retransmitido.
-
-Diferença em relação ao RDT 2.1:
-- O NAK é removido. - O emissor usa o temporizador para detectar perdas.
-- O receptor apenas envia ACKs para pacotes válidos e repete o último ACK para duplicatas.
-
-Formato do pacote: 
-    Header: Tipo (1 byte) | SeqNum (1 byte) | Checksum (8 bytes)
-    Dados: variável 
-
-Tipos:
-    TYPE_DATA = 0 
-    TYPE_ACK = 1 /
-
 """
+RDT 3.0 - Reliable Data Transfer com tratamento de perda de pacotes
+-------------------------------------------------------------------
+Objetivo:
+Adicionar tolerância a perdas (de dados ou ACKs).
+
+Características:
+ - Temporizador (timeout) para retransmissões automáticas.
+ - Suporte à perda e atraso de pacotes.
+ - Alternância de sequência (0/1).
+"""
+
 import socket 
 import struct 
 import hashlib 
@@ -27,34 +17,33 @@ import threading
 import time 
 from utils.simulator import UnreliableChannel
 
-# -------------------------
-# Constantes e formatos
-# -------------------------
 TYPE_DATA = 0
 TYPE_ACK = 1
-HEADER_FMT = "!BB8s"  # Tipo (1), SeqNum (1), Checksum (8)
+
+HEADER_FMT = "!BB8s"
 HEADER_SIZE = struct.calcsize(HEADER_FMT)
 
 
-# -------------------------
-# Funções utilitárias
-# -------------------------
+# ==============================================================
+# Funções auxiliares
+# ==============================================================
+
 def checksum(data: bytes) -> bytes:
-    """Gera checksum de 8 bytes para os dados usando MD5 (digest[:8])."""
+    """Calcula um checksum de 8 bytes (MD5 truncado)."""
     if isinstance(data, str):
         data = data.encode()
     return hashlib.md5(data).digest()[:8]
 
 
 def make_packet(pkt_type: int, seqnum: int = 0, data: bytes = b'') -> bytes:
-    """Monta um pacote com header + dados."""
+    """Pacote: [1B tipo][1B seq][8B checksum][dados]."""
     chksum = checksum(data)
     header = struct.pack(HEADER_FMT, pkt_type, seqnum, chksum)
     return header + data
 
 
 def parse_packet(packet: bytes):
-    """Desempacota o pacote recebido. Retorna (pkt_type, seqnum, chksum, data)."""
+    """Desmonta pacote em (tipo, seq, checksum, dados)."""
     if len(packet) < HEADER_SIZE:
         raise ValueError("Pacote muito curto")
     pkt_type, seqnum, chksum = struct.unpack(HEADER_FMT, packet[:HEADER_SIZE])
@@ -62,14 +51,12 @@ def parse_packet(packet: bytes):
     return pkt_type, seqnum, chksum, data
 
 
-# -------------------------
-# Emissor RDT 3.0
-# -------------------------
+# ==============================================================
+# Emissor
+# ==============================================================
+
 class RDT30Sender:
-    """
-    Emissor RDT 3.0 (Stop-and-Wait com timer).
-    Usa ACKs numerados e retransmissão após timeout.
-    """
+    """Emissor do protocolo RDT 3.0."""
 
     def __init__(self, simulator: UnreliableChannel,
                  local_port=13002, dest=('localhost', 13001),
@@ -84,7 +71,6 @@ class RDT30Sender:
         self.retransmissions = 0  # ← contador de retransmissões
 
     def send(self, msg: str):
-        """Envia msg de forma confiável (bloqueante até confirmação)."""
         data = msg.encode()
         packet = make_packet(TYPE_DATA, self.seq, data)
         self.last_packet = packet
@@ -93,20 +79,17 @@ class RDT30Sender:
         while True:
             attempts += 1
             if attempts > 1:
-                self.retransmissions += 1  # ← incrementa se for retransmissão
+                self.retransmissions += 1
 
             print(f"[SENDER] Enviando (seq={self.seq}): {msg} (tentativa {attempts})")
 
-            # Envio via simulador (pode corromper ou perder)
             self.simulator.send(packet, self.sock, self.dest)
 
-            # Define timeout de espera por ACK
             self.sock.settimeout(self.timeout)
             try:
                 resp, _ = self.sock.recvfrom(4096)
                 pkt_type, ack_seq, recv_chksum, _ = parse_packet(resp)
 
-                # Verifica integridade do ACK
                 if recv_chksum != checksum(b''):
                     print("[SENDER] ACK corrompido → retransmitindo")
                     self.retransmissions += 1
@@ -127,27 +110,22 @@ class RDT30Sender:
         print(f"[SENDER] Mensagem '{msg}' entregue com sucesso.\n")
 
 
+# ==============================================================
+# Receptor
+# ==============================================================
 
-# -------------------------
-# Receptor RDT 3.0
-# -------------------------
 class RDT30Receiver:
-    """
-    Receptor RDT 3.0:
-    - Aceita pacotes em ordem e descarta duplicatas.
-    - Responde apenas com ACKs (sem NAK).
-    """
+    """Receptor do protocolo RDT 3.0."""
 
     def __init__(self, local_port=13001):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(('localhost', local_port))
         self.expected_seq = 0
         self.received = []
-        self.last_ack_seq = 1  # usado para ACK duplicado
+        self.last_ack_seq = 1  
         self.running = False
 
     def start(self):
-        """Loop principal do receptor."""
         self.running = True
         while self.running:
             try:
@@ -161,7 +139,6 @@ class RDT30Receiver:
                 print("[RECEIVER] Pacote inválido recebido:", e)
                 continue
 
-            # Verifica integridade
             if recv_chksum != checksum(data):
                 print("[RECEIVER] Pacote corrompido → reenviando último ACK")
                 ack = make_packet(TYPE_ACK, self.last_ack_seq, b'')
@@ -183,7 +160,6 @@ class RDT30Receiver:
                     self.sock.sendto(ack, addr)
 
     def stop(self):
-        """Finaliza o receptor."""
         self.running = False
         try:
             self.sock.close()

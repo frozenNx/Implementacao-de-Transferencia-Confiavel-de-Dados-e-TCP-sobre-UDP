@@ -1,15 +1,14 @@
 
 """
-rdt21.py — Implementação do protocolo RDT 2.1 (Reliable Data Transfer 2.1)
+RDT 2.1 - Reliable Data Transfer com sequência e ACK/NAK numerados
+------------------------------------------------------------------
+Objetivo:
+Corrigir duplicações causadas por retransmissões indevidas (erro do 2.0).
 
-Este módulo implementa o protocolo RDT 2.1, responsável por comunicação confiável
-em um canal não confiável, considerando perdas e corrupção de pacotes.
-A versão 2.1 introduz numeração de sequência para lidar com retransmissões
-duplicadas e ACKs corrompidos, garantindo entrega correta e ordenada.
-
-Componentes:
-- RDT21Sender: Emissor com retransmissão e controle de sequência.
-- RDT21Receiver: Receptor com verificação de integridade e controle de duplicatas.
+Características:
+ - Usa número de sequência (0/1) alternado.
+ - ACKs e NAKs contêm número de sequência esperado.
+ - Corrupção de dados e ACKs são tratados.
 """
 
 import socket
@@ -18,66 +17,35 @@ import hashlib
 import time
 from utils.simulator import UnreliableChannel
 
-
-# ========================
-# CONSTANTES E ESTRUTURAS
-# ========================
-
 TYPE_DATA = 0
 TYPE_ACK = 1
 TYPE_NAK = 2
 
-# Formato: Tipo (1 byte), SeqNum (1 byte), Checksum (8 bytes)
 HEADER_FMT = "!BB8s"
 HEADER_SIZE = struct.calcsize(HEADER_FMT)
 
 
-# ========================
-# FUNÇÕES AUXILIARES
-# ========================
+# ==============================================================
+# Funções auxiliares
+# ==============================================================
+
 
 def checksum(data: bytes) -> bytes:
-    """
-    Calcula o checksum de 8 bytes de um dado utilizando o algoritmo MD5.
-
-    Parâmetros:
-        data (bytes | str): Dados a serem verificados.
-
-    Retorna:
-        bytes: Checksum de 8 bytes.
-    """
+    """Calcula um checksum de 8 bytes (MD5 truncado)."""
     if isinstance(data, str):
         data = data.encode()
     return hashlib.md5(data).digest()[:8]
 
 
 def make_packet(pkt_type: int, seqnum: int = 0, data: bytes = b'') -> bytes:
-    """
-    Monta um pacote com cabeçalho e dados.
-
-    Parâmetros:
-        pkt_type (int): Tipo do pacote (DATA, ACK, NAK).
-        seqnum (int): Número de sequência (0 ou 1).
-        data (bytes): Dados da mensagem.
-
-    Retorna:
-        bytes: Pacote completo pronto para envio.
-    """
+    """Pacote: [1B tipo][1B seq][8B checksum][dados]."""
     chksum = checksum(data)
     header = struct.pack(HEADER_FMT, pkt_type, seqnum, chksum)
     return header + data
 
 
 def parse_packet(packet: bytes):
-    """
-    Lê um pacote e separa seus campos.
-
-    Parâmetros:
-        packet (bytes): Pacote recebido.
-
-    Retorna:
-        tuple: (pkt_type, seqnum, chksum, data)
-    """
+    """Desmonta pacote em (tipo, seq, checksum, dados)."""
     if len(packet) < HEADER_SIZE:
         raise ValueError("Pacote muito curto para análise.")
     pkt_type, seqnum, chksum = struct.unpack(HEADER_FMT, packet[:HEADER_SIZE])
@@ -85,19 +53,12 @@ def parse_packet(packet: bytes):
     return pkt_type, seqnum, chksum, data
 
 
-# ========================
-# CLASSE DO EMISSOR
-# ========================
+# ==============================================================
+# Emissor
+# ==============================================================
 
 class RDT21Sender:
-    """
-    Implementa o protocolo RDT 2.1 no lado emissor.
-
-    Funções principais:
-    - Envia mensagens utilizando numeração alternada (0/1).
-    - Retransmite em caso de timeout, NAK ou ACK inválido.
-    - Utiliza checksum para detecção de corrupção.
-    """
+    """Emissor do protocolo RDT 2.1."""
 
     def __init__(self, simulator: UnreliableChannel, local_port=12000,
                  dest=('localhost', 12001), timeout=2.0):
@@ -110,16 +71,9 @@ class RDT21Sender:
         self.retransmissions = 0  # contador de retransmissões
 
     def packet_header_size(self):
-        """Retorna tamanho do header do pacote: tipo(1) + seq(1) + checksum(8)"""
         return 1 + 1 + 8
 
     def send(self, msg: str):
-        """
-        Envia uma mensagem confiável pelo canal.
-
-        Parâmetros:
-            msg (str): Mensagem a ser transmitida.
-        """
         data = msg.encode()
         packet = make_packet(TYPE_DATA, self.seq, data)
         attempts = 0
@@ -134,10 +88,9 @@ class RDT21Sender:
                 resp, _ = self.sock.recvfrom(1024)
                 pkt_type, ack_seq, _, _ = parse_packet(resp)
 
-                # Verifica se é ACK válido
                 if pkt_type == TYPE_ACK and ack_seq == self.seq:
                     print(f"[SENDER] ACK recebido (seq={ack_seq})")
-                    self.seq = 1 - self.seq  # Alterna número de sequência
+                    self.seq = 1 - self.seq
                     break
                 elif pkt_type == TYPE_NAK:
                     print("[SENDER] NAK recebido → retransmitindo")
@@ -152,19 +105,12 @@ class RDT21Sender:
 
 
 
-# ========================
-# CLASSE DO RECEPTOR
-# ========================
+# ==============================================================
+# Receptor
+# ==============================================================
 
 class RDT21Receiver:
-    """
-    Implementa o protocolo RDT 2.1 no lado receptor.
-
-    Funções principais:
-    - Detecta pacotes corrompidos via checksum.
-    - Rejeita duplicatas com base no número de sequência.
-    - Envia ACK ou NAK conforme o estado do pacote.
-    """
+    """Receptor do protocolo RDT 2.1."""
 
     def __init__(self, local_port=12001):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -175,7 +121,6 @@ class RDT21Receiver:
         self.running = False
 
     def start(self):
-        """Inicia o loop principal do receptor."""
         self.running = True
         while self.running:
             try:
@@ -189,14 +134,12 @@ class RDT21Receiver:
                 print("[RECEIVER] Pacote inválido recebido:", e)
                 continue
 
-            # Verifica integridade do pacote
             calc_chksum = checksum(data)
             if recv_chksum != calc_chksum:
                 print("[RECEIVER] Pacote Corrompido -> enviando NAK")
                 self.sock.sendto(make_packet(TYPE_NAK, seqnum, b''), addr)
                 continue
 
-            # Processa pacotes DATA válidos
             if pkt_type == TYPE_DATA:
                 if seqnum == self.expected_seq:
                     msg = data.decode(errors='replace')
@@ -216,7 +159,6 @@ class RDT21Receiver:
                 print("[RECEIVER] Recebeu pacote não-DATA no receptor → ignorando")
 
     def stop(self):
-        """Encerra o receptor e fecha o socket."""
         self.running = False
         try:
             self.sock.close()
