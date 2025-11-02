@@ -1,9 +1,8 @@
-
 """
 RDT 2.1 - Reliable Data Transfer com sequência e ACK/NAK numerados
 ------------------------------------------------------------------
 Objetivo:
-Corrigir duplicações causadas por retransmissões indevidas (erro do 2.0).
+Corrigir duplicações causadas por retransmissões indevidas (erro do RDT 2.0).
 
 Características:
  - Usa número de sequência (0/1) alternado.
@@ -12,51 +11,15 @@ Características:
 """
 
 import socket
-import struct
-import hashlib
-import time
+from typing import Tuple
 from utils.simulator import UnreliableChannel
-
-TYPE_DATA = 0
-TYPE_ACK = 1
-TYPE_NAK = 2
-
-HEADER_FMT = "!BB8s"
-HEADER_SIZE = struct.calcsize(HEADER_FMT)
+from utils.packet import TYPE_DATA, TYPE_ACK, TYPE_NAK, checksum, make_packet, parse_packet
+from utils import logger
 
 
-# ==============================================================
-# Funções auxiliares
-# ==============================================================
-
-
-def checksum(data: bytes) -> bytes:
-    """Calcula um checksum de 8 bytes (MD5 truncado)."""
-    if isinstance(data, str):
-        data = data.encode()
-    return hashlib.md5(data).digest()[:8]
-
-
-def make_packet(pkt_type: int, seqnum: int = 0, data: bytes = b'') -> bytes:
-    """Pacote: [1B tipo][1B seq][8B checksum][dados]."""
-    chksum = checksum(data)
-    header = struct.pack(HEADER_FMT, pkt_type, seqnum, chksum)
-    return header + data
-
-
-def parse_packet(packet: bytes):
-    """Desmonta pacote em (tipo, seq, checksum, dados)."""
-    if len(packet) < HEADER_SIZE:
-        raise ValueError("Pacote muito curto para análise.")
-    pkt_type, seqnum, chksum = struct.unpack(HEADER_FMT, packet[:HEADER_SIZE])
-    data = packet[HEADER_SIZE:]
-    return pkt_type, seqnum, chksum, data
-
-
-# ==============================================================
+# =========================
 # Emissor
-# ==============================================================
-
+# =========================
 class RDT21Sender:
     """Emissor do protocolo RDT 2.1."""
 
@@ -66,11 +29,18 @@ class RDT21Sender:
         self.sock.bind(('localhost', local_port))
         self.simulator = simulator
         self.dest = dest
-        self.seq = 0  # Número de sequência atual (0 ou 1)
+        self.seq = 0
         self.timeout = timeout
-        self.retransmissions = 0  # contador de retransmissões
+        self.retransmissions = 0
 
-    def packet_header_size(self):
+    def packet_header_size(self) -> int:
+        """
+        Retorna o tamanho do cabeçalho do pacote (bytes extras por mensagem).
+
+        - 1 byte tipo
+        - 1 byte seqnum
+        - 8 bytes checksum (MD5 truncado)
+        """
         return 1 + 1 + 8
 
     def send(self, msg: str):
@@ -92,35 +62,35 @@ class RDT21Sender:
                     print(f"[SENDER] ACK recebido (seq={ack_seq})")
                     self.seq = 1 - self.seq
                     break
-                elif pkt_type == TYPE_NAK:
-                    print("[SENDER] NAK recebido → retransmitindo")
-                    self.retransmissions += 1
                 else:
-                    print("[SENDER] ACK inválido/corrompido → retransmitindo")
+                    print("[SENDER] NAK ou ACK inválido → retransmitindo")
                     self.retransmissions += 1
-
             except socket.timeout:
                 print("[SENDER] Timeout → retransmitindo")
                 self.retransmissions += 1
 
-
-
-# ==============================================================
+# =========================
 # Receptor
-# ==============================================================
-
+# =========================
 class RDT21Receiver:
     """Receptor do protocolo RDT 2.1."""
 
-    def __init__(self, local_port=12001):
+    def __init__(self, local_port: int = 12001) -> None:
+        """
+        Inicializa o receptor RDT 2.1.
+
+        Args:
+            local_port (int): porta local para bind
+        """
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(('localhost', local_port))
-        self.expected_seq = 0  # Próximo número de sequência esperado
-        self.received = []     # Lista de mensagens entregues à aplicação
-        self.last_ack_seq = 1  # Último ACK enviado
+        self.expected_seq = 0
+        self.received = []
+        self.last_ack_seq = 1
         self.running = False
 
-    def start(self):
+    def start(self) -> None:
+        """Inicia loop de recepção de pacotes."""
         self.running = True
         while self.running:
             try:
@@ -131,36 +101,37 @@ class RDT21Receiver:
             try:
                 pkt_type, seqnum, recv_chksum, data = parse_packet(pkt)
             except Exception as e:
-                print("[RECEIVER] Pacote inválido recebido:", e)
+                logger.log_corrupt(seqnum=0)
                 continue
 
-            calc_chksum = checksum(data)
-            if recv_chksum != calc_chksum:
-                print("[RECEIVER] Pacote Corrompido -> enviando NAK")
-                self.sock.sendto(make_packet(TYPE_NAK, seqnum, b''), addr)
+            if recv_chksum != checksum(data):
+                logger.log_corrupt(seqnum=seqnum, pkt_type=pkt_type)
+                nak_pkt = make_packet(TYPE_NAK, seqnum, b'')
+                self.sock.sendto(nak_pkt, addr)
                 continue
 
             if pkt_type == TYPE_DATA:
                 if seqnum == self.expected_seq:
                     msg = data.decode(errors='replace')
-                    print(f"[RECEIVER] Pacote OK (seq={seqnum}): {msg}")
+                    logger.log_received(seqnum=seqnum, pkt_type=TYPE_DATA)
                     self.received.append(msg)
-                    # Envia ACK e alterna sequência esperada
-                    ack = make_packet(TYPE_ACK, seqnum, b'')
-                    self.sock.sendto(ack, addr)
+                    ack_pkt = make_packet(TYPE_ACK, seqnum, b'')
+                    self.sock.sendto(ack_pkt, addr)
                     self.last_ack_seq = seqnum
                     self.expected_seq = 1 - self.expected_seq
                 else:
                     # Pacote duplicado → reenvia último ACK
-                    print(f"[RECEIVER] Pacote duplicado (seq={seqnum}) → reenviando ACK(seq={self.last_ack_seq})")
-                    ack = make_packet(TYPE_ACK, self.last_ack_seq, b'')
-                    self.sock.sendto(ack, addr)
+                    ack_pkt = make_packet(TYPE_ACK, self.last_ack_seq, b'')
+                    self.sock.sendto(ack_pkt, addr)
+                    logger.log_sent(seqnum=self.last_ack_seq, pkt_type=TYPE_ACK)
             else:
-                print("[RECEIVER] Recebeu pacote não-DATA no receptor → ignorando")
+                # Ignora pacotes não-DATA
+                continue
 
-    def stop(self):
+    def stop(self) -> None:
+        """Para o receptor e fecha o socket."""
         self.running = False
         try:
             self.sock.close()
-        except:
+        except Exception:
             pass
