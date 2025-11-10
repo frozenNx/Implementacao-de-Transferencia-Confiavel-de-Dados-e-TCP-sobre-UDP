@@ -74,58 +74,59 @@ def test_rdt21() -> None:
     print("✓ RDT 2.1 finalizado\n")
 
 
-# =============================
-# TESTE RDT 3.0 (AJUSTADO)
-# =============================
 def test_rdt30() -> None:
     print("\n===== TESTE RDT 3.0 =====")
     
-    # Perda para DATA/ACKs, Corrupção Zero (o foco está na perda e no timer)
+    # Configuração do canal não confiável
     sim = UnreliableChannel(loss_rate=0.15, corrupt_rate=0.0, delay_range=(0.05, 0.5))
     
-    # Timeout ajustado para 3 * MAX_DELAY (2.0s é um bom valor de segurança)
+    # IDs lógicos do simulador
+    sender_id = "A"
+    receiver_id = "B"
+    
+    # Timeout do sender
     TIMEOUT = 2.0
     
-    recv = RDT30Receiver()
-    # Passamos o timeout para o sender para garantir consistência
-    send = RDT30Sender(sim, timeout=TIMEOUT) 
-
-    recv_thread = threading.Thread(target=recv.start, daemon=True)
-    recv_thread.start()
-
+    # Criar receptor
+    recv = RDT30Receiver(sim, receiver_id, sender_id)
+    
+    # Criar sender
+    send = RDT30Sender(sim, sender_id, receiver_id, timeout=TIMEOUT)
+    
+    # Registrar endpoints no canal (roteamento interno)
+    sim.register_gbn_endpoints(sender=send, receiver=recv)
+    
+    # Mensagens para enviar
     msgs = [f"Msg {i}" for i in range(10)]
     total_bytes = sum(len(m.encode()) for m in msgs)
     start_time = time.time()
-
+    
+    # Envio das mensagens
     for msg in msgs:
-        # AÇÃO: REMOVIDO logger.log_sent(send.seq, 0), pois o send.send já faz o log
         send.send(msg)
-
+    
     end_time = time.time()
     total_time = end_time - start_time
     
-    # Calculamos o throughput APÓS a conclusão do último send()
-    throughput = total_bytes / total_time 
-
-    # AÇÃO: Aumentamos o tempo de espera para garantir que o último ACK seja processado
-    time.sleep(3.0) 
-    recv.stop()
-
-    print("Mensagens recebidas:", recv.received)
+    # Conferir mensagens recebidas
+    received_msgs = recv.get_all_messages()
+    
+    print("Mensagens recebidas:", received_msgs)
     print("Mensagens esperadas:", msgs)
     
-    # AVALIAÇÃO FINAL
-    success = (recv.received == msgs)
+    success = (received_msgs == msgs)
     print(f"Sucesso Total: {'SIM' if success else 'NÃO'}")
-
-    print("Retransmissões:", send.retransmissions)
+    
+    print(f"Retransmissões: {getattr(send, 'retransmissions', 0)}")
     print(f"Tempo Total de Transferência: {total_time:.2f}s")
+    throughput = total_bytes / total_time
     print(f"Throughput efetivo (bytes úteis / tempo total): {throughput:.2f} bytes/s")
     
     if success:
         print("✓ RDT 3.0 finalizado\n")
     else:
         print("✗ RDT 3.0 FALHOU: Mensagens perdidas ou fora de ordem\n")
+
 
 # =============================
 # EXECUÇÃO PRINCIPAL
