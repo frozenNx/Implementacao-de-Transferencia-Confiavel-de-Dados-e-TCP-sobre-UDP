@@ -1,41 +1,33 @@
 """
-Exemplo de cliente que usa SimpleTCPSocket.
-Exemplo de uso:
-  python tcp_client.py localhost 8000
-ou usar channel=UnreliableChannel(...)
+Exemplo de cliente usando TCPSocket
 """
 
-from typing import Optional
-from fase3.tcp_socket import SimpleTCPSocket
-from utils.simulator import UnreliableChannel
-import sys
+from tcp_socket import TCPSocket
 import time
 
-def run_client(server_host='localhost', server_port=8000, channel: Optional[UnreliableChannel] = None):
-    client = SimpleTCPSocket(0, verbose=True, channel=channel)
-    client.connect((server_host, server_port))
-    print(f"Conectado a {(server_host, server_port)}")
-    try:
-        msg = b"Hello server! " * 800  # ~12KB
-        t0 = time.time()
-        client.send(msg)
-        t_total = time.time() - t0
-        print(f"Enviado {len(msg)} bytes em {t_total:.3f}s")
-        # tentar receber eco
-        received = b''
-        while len(received) < len(msg):
-            part = client.recv(4096, timeout=2.0)
-            if not part:
-                break
-            received += part
-        print(f"Recebido {len(received)} bytes")
-    finally:
-        client.close()
-        print("Cliente encerrado")
+
+def main():
+    client = TCPSocket()  # Porta local aleatória
+    client.connect(("127.0.0.1", 12345))
+    print("Conectado ao servidor.")
+
+    msgs = ["Olá", "Teste de transferência", "sair"]
+
+    for m in msgs:
+        print("Enviando:", m)
+        client.send(m.encode())
+
+        resp = client.recv(timeout=5.0)
+        if resp:
+            print("Resposta:", resp.decode(errors="replace"))
+        else:
+            print("Resposta: <vazio>")
+
+        time.sleep(1)
+
+    client.close()
+    print("Cliente finalizado.")
+
 
 if __name__ == "__main__":
-    host = 'localhost'
-    port = 8000
-    if len(sys.argv) >= 3:
-        host = sys.argv[1]; port = int(sys.argv[2])
-    run_client(host, port)
+    main()

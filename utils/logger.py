@@ -1,127 +1,130 @@
 """
-utils/logger.py
------------------------------------
-Sistema de logging para registrar eventos de envio, recepção, perda e corrupção de pacotes.
-Usa timestamp em milissegundos para alta precisão.
+===========================================================
+Módulo: logger.py
+===========================================================
+
+Implementa o sistema de logging utilizado por todos os
+módulos do projeto (RDT, TCP-Sobre-UDP, Canal, etc).
+
+O logger registra:
+    - Envio e recebimento de pacotes
+    - Eventos de perda/corrupção
+    - Timeouts e retransmissões
+    - ACKs e updates de janela
+    - Mensagens gerais do sistema
+
+Características:
+    - Thread-safe via Lock
+    - Impressão no console
+    - Escrita em arquivo no diretório /logs
+    - Arquivos nomeados automaticamente com timestamp
+===========================================================
 """
 
-import time
-import sys
-from typing import Optional
-
-# --- Constantes (Tipos de Pacote) ---
-PKT_TYPES = {
-    0: "DATA",
-    1: "ACK",
-    2: "NAK",
-}
-
-# --- Variável Global para Controlar a Saída ---
-LOG_FILE = None 
-
-def _output(message: str, stream=sys.stdout) -> None:
-    """Função interna para direcionar a saída do log."""
-    print(message, file=stream)
-    if LOG_FILE:
-        with open(LOG_FILE, 'a') as f:
-            print(message, file=f)
-
-# CORREÇÃO CRÍTICA APLICADA AQUI
-def _timestamp() -> str:
-    """Gera timestamp formatado com milissegundos (HH:MM:SS.ms)."""
-    now = time.time()
-    # Pega o tempo formatado sem a fração de segundo
-    base_time = time.strftime("%H:%M:%S", time.localtime(now))
-    # Calcula os milissegundos (parte fracionária * 1000)
-    ms = int(now * 1000) % 1000
-    return f"{base_time}.{ms:03d}"
-
-def _get_pkt_type_str(pkt_type: Optional[int]) -> str:
-    """Converte o inteiro do tipo de pacote para string simbólica."""
-    if pkt_type is None:
-        return "N/A"
-    return PKT_TYPES.get(pkt_type, f"TYPE:{pkt_type}")
+import os
+import datetime
+import threading
 
 
-# =================================================================
-# FUNÇÕES DE LOG PRINCIPAIS
-# =================================================================
+class Logger:
+    """
+    Logger thread-safe para registrar eventos dos protocolos RDT
+    e TCP simplificado.
 
-def log_sent(seqnum: int, pkt_type: int) -> None:
-    """Registra que um pacote foi enviado."""
-    pkt_str = _get_pkt_type_str(pkt_type)
-    _output(f"[{_timestamp()}] [SND] ENVIADO    | Tipo: {pkt_str:4s} | Seq: {seqnum}")
+    Características:
+        - Permite múltiplos componentes (origin)
+        - Escrita protegida com Lock
+        - Log simultâneo no console e arquivo .log
+        - Criação automática do diretório de logs
+        - Arquivos nomeados: <prefix>_YYYYMMDD_HHMMSS.log
 
-def log_received(seqnum: int, pkt_type: int) -> None:
-    """Registra que um pacote foi recebido (no socket)."""
-    pkt_str = _get_pkt_type_str(pkt_type)
-    _output(f"[{_timestamp()}] [RCV] RECEBIDO   | Tipo: {pkt_str:4s} | Seq: {seqnum}")
+    Args:
+        log_dir (str): Diretório onde os arquivos .log serão armazenados.
+        prefix (str): Prefixo do arquivo de log. Ex.: "tcp", "rdt20".
+        origin (str): Nome do módulo emissor ("TCP", "RDT", "CHANNEL"...)
+    """
 
-def log_delivered(msg_index: int) -> None:
-    """Registra que o pacote DATA foi entregue à aplicação."""
-    _output(f"[{_timestamp()}] [APP] ENTREGUE   | Mensagem Index: {msg_index}")
+    def __init__(self, log_dir="logs", prefix="log", origin=None):
+        self.log_dir = log_dir
+        self.prefix = prefix
+        self.origin = origin or "SYSTEM"
 
-def log_lost(seqnum: int, pkt_type: Optional[int] = None) -> None:
-    """Registra que um pacote foi perdido pelo simulador ou canal."""
-    pkt_str = _get_pkt_type_str(pkt_type)
-    _output(f"[{_timestamp()}] [CHAN] PERDIDO   | Tipo: {pkt_str:4s} | Seq: {seqnum}")
+        self.lock = threading.Lock()  # Thread-safe
 
-def log_corrupt(seqnum: Optional[int], pkt_type: Optional[int] = None) -> None:
-    """Registra que um pacote foi corrompido e detectado pelo checksum."""
-    pkt_str = _get_pkt_type_str(pkt_type)
-    _output(f"[{_timestamp()}] [CHK] CORROMPIDO | Tipo: {pkt_str:4s} | Seq: {seqnum}")
+        os.makedirs(self.log_dir, exist_ok=True)
 
-def log_timeout(seqnum: int) -> None:
-    """Registra que ocorreu um timeout para o pacote especificado."""
-    _output(f"[{_timestamp()}] [TIMER] TIMEOUT  | Seq: {seqnum} | AÇÃO: Retransmitir")
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{self.prefix}_{timestamp}.log"
 
-def log_retransmit(seqnum: int, reason: str = "Timeout/NAK") -> None:
-    """Registra que o Remetente está retransmitindo um pacote."""
-    _output(f"[{_timestamp()}] [SND] RETRANSMIT | Seq: {seqnum} | Motivo: {reason}")
+        self.file_path = os.path.join(self.log_dir, filename)
+        self.file = open(self.file_path, "a", encoding="utf-8")
 
+    # ============================================================ #
+    # Método central
+    # ============================================================ #
+    def log(self, event_type: str, message: str):
+        """
+        Registra uma linha de log formatada.
 
-# =================================================================
-# FUNÇÕES AUXILIARES E DE CONTROLE
-# =================================================================
+        Formato:
+            [HH:MM:SS.mmm] [ORIGEM   ] [TIPO   ] mensagem
 
-def info(message: str) -> None:
-    """Log de informação geral."""
-    _output(f"[{_timestamp()}] [INFO] {message}")
-    
-def error(message: str) -> None:
-    """Log de erro crítico."""
-    _output(f"[{_timestamp()}] [ERRO] {message}", stream=sys.stderr)
+        Args:
+            event_type (str): Categoria do evento (SEND, ACK, RECV…)
+            message (str): Texto do evento.
+        """
+        if self.file.closed:
+            return
 
-def header(title: str) -> None:
-    """Gera um cabeçalho visual para separar seções."""
-    separator = "=" * len(title)
-    _output(f"\n{separator}\n{title}\n{separator}")
-    
-def debug(message: str) -> None:
-    """Log de debug de baixo nível."""
-    _output(f"[{_timestamp()}] [DEBUG] {message}")
+        now = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        formatted = (
+            f"[{now}] "
+            f"[{self.origin:9}] "
+            f"[{event_type.upper():7}] "
+            f"{message}"
+        )
 
-def config(**kwargs) -> None:
-    """Loga as configurações atuais do ambiente de teste."""
-    header("CONFIGURAÇÃO DE TESTE")
-    for key, value in kwargs.items():
-        _output(f"| {key:<20s}: {value}")
-    _output("-" * 30)
-    
-def success(message: str) -> None:
-    """Loga uma mensagem de sucesso."""
-    _output(f"\n[SUCESSO] {message}\n")
-    
-def clear_log() -> None:
-    """Limpa o arquivo de log se estiver configurado."""
-    if LOG_FILE:
-        with open(LOG_FILE, 'w') as f:
-            f.write(f"Log iniciado em: {time.ctime()}\n")
-            
-def log_duplicate_ack(seq, count):
-    """Loga quando um ACK duplicado é recebido."""
-    _output(f"[{_timestamp()}] [DUP ACK] Seq: {seq} | Contagem: {count}")
+        with self.lock:
+            print(formatted)
+            self.file.write(formatted + "\n")
+            self.file.flush()
 
-def log_fast_retransmit(base):
-    """Loga quando a Retransmissão Rápida é acionada."""
-    _output(f"[{_timestamp()}] [FAST RTR] Base: {base} | AÇÃO: Retransmitir Rápido")
+    # ============================================================ #
+    # Categorias de log
+    # ============================================================ #
+    def info(self, message):    self.log("INFO", message)
+    def send(self, message):    self.log("SEND", message)
+    def recv(self, message):    self.log("RECV", message)
+    def loss(self, message):    self.log("LOSS", message)
+    def corrupt(self, message): self.log("CORRUPT", message)
+    def timeout(self, message): self.log("TIMEOUT", message)
+    def drop(self, message):    self.log("DROP", message)
+    def deliver(self, message): self.log("DELIVER", message)
+
+    # Categorias específicas TCP/RDT
+    def ack(self, message):     self.log("ACK", message)
+    def window(self, message):  self.log("WINDOW", message)
+    def retry(self, message):   self.log("RETRY", message)
+    def syn(self, message):     self.log("SYN", message)
+
+    # Compatibilidade com testadores antigos
+    def log_recv_ack(self, seq):
+        """
+        Registro compatível com versões antigas dos testes
+        da Fase 2.
+        """
+        self.ack(f"ACK {seq} recebido")
+
+    # ============================================================ #
+    # Fechamento
+    # ============================================================ #
+    def close(self):
+        """Fecha o arquivo de log com segurança."""
+        try:
+            self.file.close()
+        except Exception:
+            pass
+
+    def __del__(self):
+        """Garante fechamento automático ao destruir o objeto."""
+        self.close()

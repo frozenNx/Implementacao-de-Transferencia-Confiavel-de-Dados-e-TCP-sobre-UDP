@@ -1,186 +1,269 @@
 """
-RDT 2.1 - Reliable Data Transfer com sequência e ACK/NAK numerados
-------------------------------------------------------------------
-Objetivo:
-Corrigir duplicações causadas por retransmissões indevidas (erro do RDT 2.0).
+===========================================================
+RDT 2.1 — Alternating Bit Protocol (UDP não confiável)
+===========================================================
 
-Características:
- - Usa número de sequência (0/1) alternado.
- - ACKs e NAKs contêm número de sequência esperado.
- - Corrupção de dados e ACKs são tratados.
+Implementação do protocolo RDT 2.1, baseado em alternating-bit,
+utilizando um UnreliableChannel que simula perda e corrupção.
+
+Diferente do RDT 2.0:
+    - Não utiliza NAK explícito.
+    - Toda a sinalização é feita via ACK contendo o número do
+      último pacote recebido corretamente (ACK cumulativo).
+    - Duplicatas e pacotes fora de ordem são tratados com reenvio
+      do último ACK válido.
+
+Classes:
+    RDT21Sender   — Emissor (alternating-bit)
+    RDT21Receiver — Receptor (alternating-bit)
 """
 
-import socket
-import threading
-from typing import Tuple
+from __future__ import annotations
+
+import time
+from typing import Optional
+
+from utils.logger import Logger
+from utils.packet import Packet
 from utils.simulator import UnreliableChannel
-from utils.packet import TYPE_DATA, TYPE_ACK, TYPE_NAK, HEADER_SIZE, make_packet, validate_packet
-from utils import logger
 
 
-# =========================
-# Emissor
-# =========================
+# ======================================================================
+#                               SENDER
+# ======================================================================
+
 class RDT21Sender:
-    """Emissor do protocolo RDT 2.1."""
+    """
+    Emissor do protocolo RDT 2.1 (alternating-bit).
 
-    def __init__(self, simulator: UnreliableChannel, local_port=12000,
-                 dest=('localhost', 12001), timeout=2.0):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(('localhost', local_port))
-        self.simulator = simulator
-        self.dest = dest
-        self.seq = 0  # Próximo número de sequência a ser enviado (0 ou 1)
-        self.timeout = timeout
+    Máquina de estados do sender:
+        - Possui um seqnum ∈ {0, 1}
+        - Para enviar um pacote:
+            1. Envia DATA(seqnum)
+            2. Aguarda ACK(seqnum)
+               - ACK válido → alterna seqnum e conclui
+               - ACK corrompido → ignora e continua esperando
+               - ACK inesperado → retransmite imediatamente
+            3. Timeout → retransmite pkt
+
+    Parameters
+    ----------
+    channel : UnreliableChannel
+        Canal não confiável do sender → receiver.
+    logger : Logger, optional
+        Logger para eventos. Se None, é criado automaticamente.
+    timeout : float
+        Timeout (s) para retransmissão.
+    """
+
+    def __init__(
+        self,
+        channel: UnreliableChannel,
+        logger: Optional[Logger] = None,
+        timeout: float = 1.0,
+    ) -> None:
+
+        self.channel = channel
+        self.logger = logger or Logger(prefix="RDT21-SENDER", origin="SENDER")
+        self.seqnum = 0
+        self.timeout = float(timeout)
         self.retransmissions = 0
-        self.last_sent_packet = None
-        # O sender RDT 2.1 deve ter um estado, mas vamos usar 'seq' como estado implícito
 
-    def packet_header_size(self) -> int:
-        """
-        Retorna o tamanho do cabeçalho do pacote (HEADER_SIZE de utils/packet.py).
-        """
-        return HEADER_SIZE
+    # ------------------------------------------------------------------
 
-    def send(self, msg: str):
-        data = msg.encode()
-        
-        # 1. Cria e armazena o pacote
-        packet = make_packet(TYPE_DATA, self.seq, data)
-        self.last_sent_packet = packet
-        attempts = 0
+    def send(self, data: bytes) -> bool:
+        """
+        Envia `data` de forma confiável usando alternating-bit.
+
+        Bloqueia até receber ACK correto ou continuar retransmitindo
+        conforme timeout.
+
+        Parameters
+        ----------
+        data : bytes
+            Payload a ser enviado.
+
+        Returns
+        -------
+        bool
+            True se ACK(seqnum) for recebido.
+        """
+        pkt = Packet(seq_num=self.seqnum, ack_num=0, flags=0, data=data)
 
         while True:
-            attempts += 1
-            
-            # 2. Envia o pacote (retransmissão se attempts > 1)
-            self.simulator.send(self.last_sent_packet, self.sock, self.dest)
-            logger.log_sent(self.seq, TYPE_DATA)
-            
-            try:
-                self.sock.settimeout(self.timeout)
-                resp, _ = self.sock.recvfrom(1024)
-                
-                # 3. Valida a Resposta
-                pkt_type, ack_seq, _, is_valid = validate_packet(resp)
+            # ----------------------------------------------------------
+            # (1) Envia ou retransmite DATA(seqnum)
+            # ----------------------------------------------------------
+            self.channel.send(pkt)
+            self.logger.send(
+                f"Pacote seq={self.seqnum} enviado "
+                f"(payload_len={len(pkt.data)})."
+            )
+            send_time = time.time()
 
-                # 3a. Pacote de controle Corrompido
-                if not is_valid:
-                    logger.info("[SND] Pacote de controle corrompido. Retransmitindo.")
-                    self.retransmissions += 1
-                    continue # Volta ao início do loop para retransmitir
-                
-                # 3b. NAK: Recebeu NAK (NAK tem o SeqNum do pacote esperado)
-                if pkt_type == TYPE_NAK:
-                    logger.info("[SND] NAK recebido. Retransmitindo.")
-                    self.retransmissions += 1
-                    continue # Volta ao início do loop para retransmitir
-                
-                # 3c. ACK CORRETO: Recebeu ACK válido para o pacote atual
-                if pkt_type == TYPE_ACK and ack_seq == self.seq:
-                    logger.log_received(ack_seq, TYPE_ACK)
-                    
-                    # Ação: Avança para o próximo estado/seq
-                    self.seq = 1 - self.seq
-                    break # SUCCESS: Sai do loop e passa para a próxima mensagem
-                
-                # 3d. ACK Duplicado ou SeqNum Errado
-                if pkt_type == TYPE_ACK and ack_seq != self.seq:
-                    # Este é o ACK do pacote anterior. O Receptor o reenvia se receber uma duplicata.
-                    logger.info(f"[SND] ACK duplicado/errado recebido (seq={ack_seq}). Ignorando.")
-                    # Continua esperando o ACK correto para self.seq.
-                    # No RDT 2.1, ignorar é a ação mais segura, pois o Sender ainda está no estado de espera.
+            # ----------------------------------------------------------
+            # (2) Loop de espera por ACK(seqnum)
+            # ----------------------------------------------------------
+            while time.time() - send_time < self.timeout:
+                ack = self.channel.recv()
+
+                if ack is None:
+                    time.sleep(0.01)
                     continue
-                         
-            except socket.timeout:
-                # O timeout só deveria ser usado no RDT 3.0, mas já que está aqui,
-                # força a retransmissão se a resposta foi perdida/demorou (erro do canal não tratado pelo 2.1)
-                logger.log_timeout(self.seq)
+
+                # ACK corrompido → ignorar
+                if ack.is_corrupt():
+                    self.logger.corrupt("ACK corrompido recebido; ignorando.")
+                    continue
+
+                # Esperamos somente ACKs
+                if not (ack.flags & Packet.FLAG_ACK):
+                    self.logger.info(
+                        "Pacote não-ACK recebido no sender; ignorando."
+                    )
+                    continue
+
+                # ACK esperado → sucesso
+                if ack.ack_num == self.seqnum:
+                    self.logger.recv(
+                        f"ACK válido recebido para seq={ack.ack_num}."
+                    )
+                    self.seqnum = 1 - self.seqnum
+                    return True
+
+                # ACK duplicado/inesperado
+                self.logger.info(
+                    f"ACK inesperado ack_num={ack.ack_num}, "
+                    f"esperado={self.seqnum}. Retransmitindo."
+                )
                 self.retransmissions += 1
-                # Continua o loop para retransmitir
+                break  # sair do loop de espera e retransmitir imediatamente
 
-# =========================
-# Receptor
-# =========================
+            # ----------------------------------------------------------
+            # (3) Timeout → retransmitir
+            # ----------------------------------------------------------
+            if time.time() - send_time >= self.timeout:
+                self.logger.timeout(
+                    f"Timeout aguardando ACK seq={self.seqnum}. Retransmitindo."
+                )
+
+            self.retransmissions += 1
+            # loop while True continua e reenviará o mesmo pkt
+
+
+# ======================================================================
+#                               RECEIVER
+# ======================================================================
+
 class RDT21Receiver:
-    """Receptor do protocolo RDT 2.1. Usa números de sequência para evitar duplicação."""
+    """
+    Receptor do protocolo RDT 2.1 (alternating-bit).
 
-    def __init__(self, local_port: int = 12001) -> None:
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(('localhost', local_port))
-        self.expected_seq = 0  # O número de sequência do pacote DATA que o receptor espera
-        self.received = []
-        self.running = False
-        self._thread = None 
+    Máquina de estados:
+        - expected_seq ∈ {0, 1}
+        - last_ack_sent guarda o último ACK válido reenviado
+        - Ao receber pacote:
+            1. Se corrompido → reenviar último ACK
+            2. Se seq != expected_seq → duplicado/out-of-order → reenviar ACK
+            3. Caso contrário → entregar, enviar ACK(expected_seq),
+               atualizar estados.
 
-    def start(self) -> None:
-        """Inicia thread de recepção de pacotes."""
-        self.running = True
-        self._thread = threading.Thread(target=self._receive_loop, daemon=True)
-        self._thread.start()
+    Parameters
+    ----------
+    channel : UnreliableChannel
+        Canal não confiável do receiver → sender.
+    logger : Logger, optional
+        Logger. Se None, cria um logger padrão.
+    """
 
-    def _receive_loop(self) -> None:
-        while self.running:
-            try:
-                self.sock.settimeout(1.0) 
-                pkt, addr = self.sock.recvfrom(4096)
-            except socket.timeout:
-                continue 
-            except OSError:
-                break 
+    def __init__(
+        self,
+        channel: UnreliableChannel,
+        logger: Optional[Logger] = None
+    ) -> None:
 
-            # --- Validação do Pacote ---
-            pkt_type, seqnum, data, is_valid = validate_packet(pkt)
-            
-            # --- Se Não for DATA, Ignora ---
-            if pkt_type != TYPE_DATA:
-                logger.info(f"[RCV] Recebeu pacote de controle ({pkt_type}). Ignorando.")
-                continue
+        self.channel = channel
+        self.logger = logger or Logger(prefix="RDT21-RECEIVER", origin="RECEIVER")
 
-            # 1. Pacote DATA Corrompido
-            if not is_valid:
-                logger.log_corrupt(seqnum=seqnum if seqnum is not None else -1, pkt_type=TYPE_DATA)
-                
-                # Ação: Envia NAK para o número de sequência que está esperando (expected_seq)
-                nak_pkt = make_packet(TYPE_NAK, self.expected_seq, b'')
-                self.sock.sendto(nak_pkt, addr)
-                logger.log_sent(self.expected_seq, TYPE_NAK)
-                continue
+        self.expected_seq = 0
+        self.last_ack_sent: Optional[int] = None
+        self.delivered_count = 0
 
-            # 2. Pacote DATA Íntegro e é o esperado (seqnum == expected_seq)
-            if seqnum == self.expected_seq:
-                msg = data.decode(errors='replace')
-                logger.log_received(seqnum=seqnum, pkt_type=TYPE_DATA)
-                self.received.append(msg)
-                
-                # Ação: Envia ACK para o pacote recebido (seqnum)
-                ack_pkt = make_packet(TYPE_ACK, seqnum, b'')
-                self.sock.sendto(ack_pkt, addr)
-                logger.log_sent(seqnum=seqnum, pkt_type=TYPE_ACK)
-                
-                # Atualiza o estado: Espera pelo próximo
-                self.expected_seq = 1 - self.expected_seq
-                
-            # 3. Pacote DATA Íntegro, mas duplicado (seqnum != expected_seq)
-            else:
-                ack_seq_to_send = 1 - self.expected_seq # Este é o SeqNum do pacote ANTERIOR que o Emissor pode estar esperando
-                logger.info(f"[RCV] Pacote duplicado (recebido={seqnum}, esperado={self.expected_seq}). Reenviando ACK {ack_seq_to_send}.")
-                
-                # Ação: Reenvia ACK do pacote JÁ ENTREGUE (1 - expected_seq)
-                ack_pkt = make_packet(TYPE_ACK, ack_seq_to_send, b'')
-                self.sock.sendto(ack_pkt, addr)
-                logger.log_sent(seqnum=ack_seq_to_send, pkt_type=TYPE_ACK)
-    
-    def get_all_messages(self) -> list:
-        """Retorna a lista de mensagens entregues à camada de aplicação."""
-        return self.received
+    # ------------------------------------------------------------------
 
-    def stop(self) -> None:
-        """Para o receptor e fecha o socket."""
-        self.running = False
-        try:
-            self.sock.close()
-        except Exception:
-            pass
-        if self._thread and threading.current_thread() != self._thread:
-             self._thread.join()
+    def receive(self) -> Optional[bytes]:
+        """
+        Processa um único pacote recebido do canal.
+
+        Returns
+        -------
+        bytes or None
+            Os bytes entregues à aplicação, ou None caso:
+                - o canal esteja vazio,
+                - o pacote seja inválido,
+                - seja duplicado/out-of-order.
+        """
+        pkt = self.channel.recv()
+        if pkt is None:
+            return None
+
+        # ----------------------------------------------------------
+        # (1) Pacote corrompido → reenviar último ACK válido
+        # ----------------------------------------------------------
+        if pkt.is_corrupt():
+            self.logger.corrupt(
+                "Pacote corrompido recebido no receiver. "
+                "Reenviando último ACK."
+            )
+            if self.last_ack_sent is not None:
+                ack = Packet(
+                    seq_num=0,
+                    ack_num=self.last_ack_sent,
+                    flags=Packet.FLAG_ACK,
+                    data=b""
+                )
+                self.channel.send(ack)
+            return None
+
+        # ----------------------------------------------------------
+        # (2) Pacote fora de ordem (duplicado)
+        # ----------------------------------------------------------
+        if pkt.seq_num != self.expected_seq:
+            self.logger.info(
+                f"Pacote duplicado/out-of-order seq={pkt.seq_num}, "
+                f"esperado={self.expected_seq}. Reenviando último ACK."
+            )
+            if self.last_ack_sent is not None:
+                ack = Packet(
+                    seq_num=0,
+                    ack_num=self.last_ack_sent,
+                    flags=Packet.FLAG_ACK,
+                    data=b""
+                )
+                self.channel.send(ack)
+            return None
+
+        # ----------------------------------------------------------
+        # (3) Pacote correto e esperado → entregar
+        # ----------------------------------------------------------
+        payload = pkt.data
+        self.delivered_count += 1
+        self.logger.recv(
+            f"Pacote seq={pkt.seq_num} entregue à aplicação: {payload!r}"
+        )
+
+        # Envia ACK confirmando o seq recebido
+        ack = Packet(
+            seq_num=0,
+            ack_num=self.expected_seq,
+            flags=Packet.FLAG_ACK,
+            data=b""
+        )
+        self.channel.send(ack)
+        self.logger.send(f"ACK enviado para seq={self.expected_seq}.")
+
+        # Atualiza estado
+        self.last_ack_sent = self.expected_seq
+        self.expected_seq = 1 - self.expected_seq
+
+        return payload

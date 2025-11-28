@@ -1,0 +1,9 @@
+GBN Sweep Results (loss=5%)
+N | throughput(B/s) | retrans | delivered | elapsed(s)
+1 | 3918.10 | 8 | 64 | 8.363
+5 | 10064.24 | 15 | 64 | 3.256
+10 | 14608.72 | 20 | 64 | 2.243
+20 | 7669.95 | 80 | 64 | 4.272
+
+RDT3.0:
+throughput=343.69 delivered=64 elapsed=95.341

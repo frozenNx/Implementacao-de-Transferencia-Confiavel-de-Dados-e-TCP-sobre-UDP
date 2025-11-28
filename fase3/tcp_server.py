@@ -1,39 +1,40 @@
 """
-Exemplo de servidor que usa SimpleTCPSocket.
-Ele funciona com UnreliableChannel (passado como channel) ou com UDP real (channel=None).
+Exemplo de servidor usando TCPSocket
 """
-from typing import Optional
-from fase3.tcp_socket import SimpleTCPSocket
-from utils.simulator import UnreliableChannel
-import sys
 
-def run_server(port: int = 8000, channel: Optional[UnreliableChannel] = None):
-    server = SimpleTCPSocket(port, verbose=True, channel=channel)
-    server.listen()
-    print(f"Servidor: ouvindo na porta {server.port}")
-    conn, addr = server.accept()
-    print(f"Conexão aceita de {addr}")
+from tcp_socket import TCPSocket
+
+
+def main():
+    srv = TCPSocket(local_addr=("127.0.0.1", 12345))
+    print("Servidor aguardando conexão em 127.0.0.1:12345 ...")
+
+    # IMPORTANTE: chamar listen() antes de accept()
+    srv.listen()
+
+    srv.accept()
+    print("Conexão estabelecida!")
+
     try:
         while True:
-            data = conn.recv(4096, timeout=5.0)
+            data = srv.recv(timeout=10.0)
             if not data:
+                print("[SERVER] Conexão encerrada pelo cliente ou timeout.")
                 break
-            print(f"Servidor recebeu {len(data)} bytes; ecoando")
-            conn.send(data)  # eco
-    except KeyboardInterrupt:
-        pass
+
+            text = data.decode(errors="replace")
+            print("Recebido:", text)
+
+            if text.strip().lower() == "sair":
+                print("[SERVER] Cliente pediu para sair.")
+                break
+
+            srv.send(b"OK: " + data)
+
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
-        server.close()
-        print("Servidor encerrado")
+        srv.close()
+        print("Servidor encerrado.")
 
 
 if __name__ == "__main__":
-    # Exemplo: python tcp_server.py [port]
-    port = 8000
-    if len(sys.argv) > 1:
-        port = int(sys.argv[1])
-    run_server(port)
+    main()

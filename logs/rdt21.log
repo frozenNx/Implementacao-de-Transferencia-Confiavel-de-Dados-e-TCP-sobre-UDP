@@ -1,0 +1,99 @@
+[17:34:47.719] [SYSTEM   ] [INFO   ] Canal iniciado em ('127.0.0.1', 13817), remoto=('127.0.0.1', 13818), loss=0.0%, corrupt=20.0%.
+[17:34:47.720] [SYSTEM   ] [INFO   ] Canal iniciado em ('127.0.0.1', 13818), remoto=('127.0.0.1', 13817), loss=0.0%, corrupt=0.0%.
+[17:34:47.721] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:47.722] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13818): seq=0
+[17:34:47.723] [SYSTEM   ] [RECV   ] Pacote seq=0 entregue à aplicação: b'Mensagem 0'
+[17:34:47.722] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado (payload_len=10).
+[17:34:47.724] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:47.743] [SYSTEM   ] [SEND   ] ACK enviado para seq=0.
+[17:34:47.743] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13817): seq=0
+[17:34:47.744] [SYSTEM   ] [RECV   ] ACK válido recebido para seq=0.
+[17:34:47.754] [SYSTEM   ] [SEND   ] Pacote seq=1 enviado.
+[17:34:47.755] [SYSTEM   ] [SEND   ] Pacote seq=1 enviado (payload_len=10).
+[17:34:47.756] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13818): seq=1
+[17:34:47.758] [SYSTEM   ] [RECV   ] Pacote seq=1 entregue à aplicação: b'Mensagem 1'
+[17:34:47.759] [SYSTEM   ] [CORRUPT] Pacote seq=0 corrompido (simulado).
+[17:34:47.759] [SYSTEM   ] [SEND   ] ACK enviado para seq=1.
+[17:34:47.760] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13817): seq=16711680
+[17:34:47.760] [SYSTEM   ] [CORRUPT] Pacote seq=16711680 corrompido (detectado).
+[17:34:48.789] [SYSTEM   ] [TIMEOUT] Timeout aguardando ACK seq=1. Retransmitindo.
+[17:34:48.790] [SYSTEM   ] [SEND   ] Pacote seq=1 enviado.
+[17:34:48.790] [SYSTEM   ] [SEND   ] Pacote seq=1 enviado (payload_len=10).
+[17:34:48.790] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13818): seq=1
+[17:34:48.791] [SYSTEM   ] [INFO   ] Pacote duplicado/out-of-order seq=1, esperado=0. Reenviando último ACK.
+[17:34:48.791] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:48.792] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13817): seq=0
+[17:34:48.792] [SYSTEM   ] [RECV   ] ACK válido recebido para seq=1.
+[17:34:48.803] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:48.804] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado (payload_len=10).
+[17:34:48.804] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13818): seq=0
+[17:34:48.804] [SYSTEM   ] [RECV   ] Pacote seq=0 entregue à aplicação: b'Mensagem 2'
+[17:34:48.804] [SYSTEM   ] [CORRUPT] Pacote seq=0 corrompido (simulado).
+[17:34:48.805] [SYSTEM   ] [SEND   ] ACK enviado para seq=0.
+[17:34:48.805] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13817): seq=16711680
+[17:34:48.807] [SYSTEM   ] [CORRUPT] Pacote seq=16711680 corrompido (detectado).
+[17:34:49.830] [SYSTEM   ] [TIMEOUT] Timeout aguardando ACK seq=0. Retransmitindo.
+[17:34:49.836] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:49.837] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado (payload_len=10).
+[17:34:49.837] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13818): seq=0
+[17:34:49.838] [SYSTEM   ] [INFO   ] Pacote duplicado/out-of-order seq=0, esperado=1. Reenviando último ACK.
+[17:34:49.838] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:49.839] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13817): seq=0
+[17:34:49.839] [SYSTEM   ] [RECV   ] ACK válido recebido para seq=0.
+[17:34:49.850] [SYSTEM   ] [SEND   ] Pacote seq=1 enviado.
+[17:34:49.851] [SYSTEM   ] [SEND   ] Pacote seq=1 enviado (payload_len=10).
+[17:34:49.851] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13818): seq=1
+[17:34:49.852] [SYSTEM   ] [RECV   ] Pacote seq=1 entregue à aplicação: b'Mensagem 3'
+[17:34:49.852] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:49.853] [SYSTEM   ] [SEND   ] ACK enviado para seq=1.
+[17:34:49.853] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13817): seq=0
+[17:34:49.853] [SYSTEM   ] [RECV   ] ACK válido recebido para seq=1.
+[17:34:49.864] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:49.865] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado (payload_len=10).
+[17:34:49.866] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13818): seq=0
+[17:34:49.867] [SYSTEM   ] [RECV   ] Pacote seq=0 entregue à aplicação: b'Mensagem 4'
+[17:34:49.867] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:49.868] [SYSTEM   ] [SEND   ] ACK enviado para seq=0.
+[17:34:49.868] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13817): seq=0
+[17:34:49.869] [SYSTEM   ] [RECV   ] ACK válido recebido para seq=0.
+[17:34:49.880] [SYSTEM   ] [SEND   ] Pacote seq=1 enviado.
+[17:34:49.881] [SYSTEM   ] [SEND   ] Pacote seq=1 enviado (payload_len=10).
+[17:34:49.881] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13818): seq=1
+[17:34:49.882] [SYSTEM   ] [RECV   ] Pacote seq=1 entregue à aplicação: b'Mensagem 5'
+[17:34:49.882] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:49.883] [SYSTEM   ] [SEND   ] ACK enviado para seq=1.
+[17:34:49.883] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13817): seq=0
+[17:34:49.884] [SYSTEM   ] [RECV   ] ACK válido recebido para seq=1.
+[17:34:49.895] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:49.896] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado (payload_len=10).
+[17:34:49.896] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13818): seq=0
+[17:34:49.897] [SYSTEM   ] [RECV   ] Pacote seq=0 entregue à aplicação: b'Mensagem 6'
+[17:34:49.897] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:49.898] [SYSTEM   ] [SEND   ] ACK enviado para seq=0.
+[17:34:49.898] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13817): seq=0
+[17:34:49.899] [SYSTEM   ] [RECV   ] ACK válido recebido para seq=0.
+[17:34:49.909] [SYSTEM   ] [SEND   ] Pacote seq=1 enviado.
+[17:34:49.910] [SYSTEM   ] [SEND   ] Pacote seq=1 enviado (payload_len=10).
+[17:34:49.910] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13818): seq=1
+[17:34:49.911] [SYSTEM   ] [RECV   ] Pacote seq=1 entregue à aplicação: b'Mensagem 7'
+[17:34:49.911] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:49.912] [SYSTEM   ] [SEND   ] ACK enviado para seq=1.
+[17:34:49.912] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13817): seq=0
+[17:34:49.913] [SYSTEM   ] [RECV   ] ACK válido recebido para seq=1.
+[17:34:49.924] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:49.925] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado (payload_len=10).
+[17:34:49.925] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13818): seq=0
+[17:34:49.926] [SYSTEM   ] [RECV   ] Pacote seq=0 entregue à aplicação: b'Mensagem 8'
+[17:34:49.927] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:49.927] [SYSTEM   ] [SEND   ] ACK enviado para seq=0.
+[17:34:49.928] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13817): seq=0
+[17:34:49.928] [SYSTEM   ] [RECV   ] ACK válido recebido para seq=0.
+[17:34:49.939] [SYSTEM   ] [SEND   ] Pacote seq=1 enviado.
+[17:34:49.940] [SYSTEM   ] [SEND   ] Pacote seq=1 enviado (payload_len=10).
+[17:34:49.941] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13818): seq=1
+[17:34:49.942] [SYSTEM   ] [RECV   ] Pacote seq=1 entregue à aplicação: b'Mensagem 9'
+[17:34:49.942] [SYSTEM   ] [SEND   ] Pacote seq=0 enviado.
+[17:34:49.944] [SYSTEM   ] [RECV   ] Pacote recebido de ('127.0.0.1', 13817): seq=0
+[17:34:49.944] [SYSTEM   ] [RECV   ] ACK válido recebido para seq=1.
+[17:34:49.944] [SYSTEM   ] [SEND   ] ACK enviado para seq=1.
+[17:34:49.955] [SYSTEM   ] [INFO   ] Encerrando canal.

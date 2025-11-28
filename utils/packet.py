@@ -1,145 +1,336 @@
 """
-utils/packet.py
------------------------------------
-Módulo utilitário para criação, parsing e validação de pacotes.
+===========================================================
+Módulo: packet.py
+===========================================================
 
-Formato do pacote:
-+--------+---------+------------+
-| Tipo   | SeqNum  | Checksum   |
-| (1B)   | (4B)    | (8B)       |
-+--------+---------+------------+
-| Dados (variável) |
-+------------------+
+Implementa pacotes usados em todas as fases do projeto de
+Transferência Confiável de Dados.
+
+Modos suportados:
+    - MODE_RDT : usado nas fases 1 e 2 (RDT 2.0, 2.1, 3.0)
+    - MODE_TCP : segmento TCP simplificado usado na fase 3
+
+Principais funcionalidades:
+    - Serialização/desserialização automática
+    - Cálculo de checksums (RDT e TCP)
+    - Criação de pacotes DATA, ACK, SYN, FIN
+    - Cabeçalhos e campos específicos de cada modo
 """
+from __future__ import annotations
+
 import struct
-import hashlib
-from typing import Dict, Any, Optional, Tuple
-
-# ============================
-# Definições globais
-# ============================
-# !BI8s: ! (Network Byte Order), B (1 byte tipo), I (4 bytes seqnum - unsigned int), 8s (8 bytes checksum)
-HEADER_FMT = "!BI8s"
-HEADER_SIZE = struct.calcsize(HEADER_FMT)
-
-TYPE_DATA = 0
-TYPE_ACK = 1
-TYPE_NAK = 2
+from typing import Optional
 
 
-# ============================
-# Funções auxiliares (Logger Simplificado)
-# ============================
-
-class SimplifiedLogger:
-    def __init__(self, verbose):
-        self.verbose = verbose
-    def info(self, msg):
-        if self.verbose: print(f"[INFO] {msg}")
-    def log_sent(self, seq, type):
-        if self.verbose: print(f"[SENT] Seq={seq}, Type={type}")
-    def log_received(self, seq, type):
-        if self.verbose: print(f"[RCV] ACK={seq}, Type={type}")
-    def log_timeout(self, base):
-        print(f"[TIMEOUT] Base={base} - Retransmitindo janela.")
-    def log_retransmit(self, seq, reason):
-        print(f"[RTR] Seq={seq} - Motivo: {reason}")
-    def log_duplicate_ack(self, seq, count):
-        if self.verbose: print(f"[DUP ACK] Seq={seq}, Count={count}")
-    def log_fast_retransmit(self, base):
-        print(f"[FAST RTR] Base={base} - 3 ACKs duplicados. Retransmitindo janela.")
-
-logger = SimplifiedLogger(verbose=True)
-
-# ============================
-# Funções de Pacote
-# ============================
-
-def checksum(data: bytes) -> bytes:
+class Packet:
     """
-    Calcula um checksum de 8 bytes (MD5 truncado).
-    
-    Args:
-        data (bytes): Dados para calcular checksum
-    
-    Returns:
-        bytes: Checksum de 8 bytes
+    Representa um pacote RDT (fases 1–2) ou um segmento TCP
+    simplificado (fase 3).
+
+    Atributos do modo RDT:
+        seq_num (int): número de sequência
+        ack_num (int): número de ACK
+        flags (int): flags de controle (DATA, ACK, etc.)
+        checksum (int): soma de verificação de integridade
+        data (bytes): payload
+
+    Atributos do modo TCP:
+        src_port (int): porta de origem
+        dst_port (int): porta de destino
+        seq_num (int): número de sequência
+        ack_num (int): número de ACK
+        hlen (int): tamanho do cabeçalho
+        flags (int): flags TCP (SYN, ACK, FIN, etc.)
+        window (int): tamanho da janela anunciada
+        urgent (int): ponteiro urgente
+        checksum (int): checksum
+        data (bytes): payload
     """
-    if isinstance(data, str):
-        data = data.encode()
-    # Retorna os primeiros 8 bytes do hash MD5
-    return hashlib.md5(data).digest()[:8]
 
-def validate_checksum(chksum_rcv: bytes, data: bytes) -> bool:
-    """Valida se o checksum recebido corresponde aos dados."""
-    return chksum_rcv == checksum(data)
+    # ---------------------- MODOS ------------------------------- #
+    MODE_RDT = 1
+    MODE_TCP = 2
 
+    # Flags RDT
+    FLAG_DATA = 1 << 0
+    FLAG_ACK = 1 << 1
+    FLAG_SYN = 1 << 2
+    FLAG_FIN = 1 << 3
 
-def make_packet(pkt_type: int, seqnum: int, data: bytes = b'') -> bytes:
-    """
-    Monta um pacote serializado no formato binário.
-    O checksum é calculado sobre o payload (data).
-    """
-    chksum = checksum(data) 
-    
-    # Empacota cabeçalho: tipo, seqnum e checksum
-    header = struct.pack(HEADER_FMT, pkt_type, seqnum, chksum)
-    return header + data
+    # Structs
+    RDT_HEADER_FORMAT = ">I I B H"
+    RDT_HEADER_SIZE = struct.calcsize(RDT_HEADER_FORMAT)
 
+    TCP_HEADER_FORMAT = ">H H I I B B H H H"
+    TCP_HEADER_SIZE = struct.calcsize(TCP_HEADER_FORMAT)
 
-def parse_packet(packet: bytes) -> Optional[Dict[str, Any]]:
-    """
-    Desmonta pacote em seus campos individuais e verifica o tamanho.
-    
-    Returns:
-        Optional[Dict]: Dicionário com (type, seq, payload, corrupt) ou None se muito curto.
-    """
-    if len(packet) < HEADER_SIZE:
-        logger.info(f"Pacote muito curto (tamanho {len(packet)} < {HEADER_SIZE})")
-        return None
+    # Flags TCP
+    TCP_FLAG_FIN = 0x01
+    TCP_FLAG_SYN = 0x02
+    TCP_FLAG_RST = 0x04
+    TCP_FLAG_PSH = 0x08
+    TCP_FLAG_ACK = 0x10
 
-    try:
-        # Desempacota: tipo (int), seqnum (int), checksum (bytes)
-        pkt_type, seqnum, chksum_rcv = struct.unpack(HEADER_FMT, packet[:HEADER_SIZE])
-        data = packet[HEADER_SIZE:]
-    except struct.error:
-        # Em caso de corrupção extrema que afeta o header (improvável com struct.unpack), mas seguro.
-        logger.info("Erro ao desempacotar o cabeçalho do pacote.")
-        return None
+    def __init__(
+        self,
+        mode: int = MODE_RDT,
+        seq_num: int = 0,
+        ack_num: int = 0,
+        flags: int = 0,
+        data: bytes | str = b"",
+        checksum: Optional[int] = None,
+        src_port: Optional[int] = None,
+        dst_port: Optional[int] = None,
+        window: int = 4096,
+        urgent: int = 0,
+    ) -> None:
+        """
+        Inicializa um pacote RDT ou TCP.
 
-    is_valid = validate_checksum(chksum_rcv, data)
+        Args:
+            mode (int): tipo do pacote (MODE_RDT ou MODE_TCP)
+            seq_num (int): número de sequência
+            ack_num (int): número de ACK
+            flags (int): flags de controle
+            data (bytes|str): payload do pacote
+            checksum (int, opcional): checksum explícito
+            src_port (int): porta de origem (TCP)
+            dst_port (int): porta de destino (TCP)
+            window (int): janela anunciada (TCP)
+            urgent (int): ponteiro urgente (TCP)
+        """
+        self.mode = mode
 
-    return {
-        'type': pkt_type,
-        'seq': seqnum,        
-        'payload': data,
-        'corrupt': not is_valid
-    }
+        if isinstance(data, str):
+            data = data.encode()
+        self.data: bytes = data
 
+        if mode == self.MODE_RDT:
+            self.seq_num = int(seq_num)
+            self.ack_num = int(ack_num)
+            self.flags = int(flags)
+            # se checksum for passado, usa; caso contrário calcula
+            self.checksum = checksum if checksum is not None else self._calc_rdt_checksum()
+        else:
+            self.src_port = int(src_port) if src_port is not None else 0
+            self.dst_port = int(dst_port) if dst_port is not None else 0
+            self.seq_num = int(seq_num)
+            self.ack_num = int(ack_num)
+            self.flags = int(flags)
+            self.window = int(window)
+            self.urgent = int(urgent)
+            # header length fixo no nosso formato simplificado
+            self.hlen = 20
+            self.checksum = checksum if checksum is not None else self._calc_tcp_checksum()
 
-def validate_packet(packet: bytes) -> Tuple[Optional[int], Optional[int], Optional[bytes], bool]:
-    """
-    Analisa e valida um pacote recebido.
-    
-    Returns:
-        tuple: (tipo, seqnum, dados, valido=True/False)
-    """
-    info = parse_packet(packet)
-    
-    # 1. Pacote muito curto ou erro de parsing
-    if info is None:
-        return None, None, None, False
+    # ---------------------- RDT METHODS ------------------------- #
+
+    def _calc_rdt_checksum(self) -> int:
+        """Calcula o checksum para pacotes RDT (16 bits)."""
+        pseudo = (
+            self.seq_num.to_bytes(4, "big")
+            + self.ack_num.to_bytes(4, "big")
+            + self.flags.to_bytes(1, "big")
+            + self.data
+        )
+        return sum(pseudo) & 0xFFFF
+
+    def _to_rdt_bytes(self) -> bytes:
+        """Serializa um pacote RDT para bytes."""
+        header = struct.pack(
+            self.RDT_HEADER_FORMAT,
+            int(self.seq_num),
+            int(self.ack_num),
+            int(self.flags),
+            int(self.checksum),
+        )
+        return header + self.data
+
+    @classmethod
+    def _from_rdt_bytes(cls, raw: bytes) -> "Packet":
+        """Constrói um pacote RDT a partir de bytes."""
+        if len(raw) < cls.RDT_HEADER_SIZE:
+            raise ValueError("Raw too small for RDT header")
+        header = raw[: cls.RDT_HEADER_SIZE]
+        seq_num, ack_num, flags, checksum = struct.unpack(cls.RDT_HEADER_FORMAT, header)
+        data = raw[cls.RDT_HEADER_SIZE :]
+        return cls(
+            mode=cls.MODE_RDT,
+            seq_num=seq_num,
+            ack_num=ack_num,
+            flags=flags,
+            data=data,
+            checksum=checksum,
+        )
+
+    # ---------------------- TCP METHODS ------------------------- #
+
+    def _tcp_pseudo_header(self) -> bytes:
+        """Retorna o pseudo-cabeçalho para cálculo do checksum TCP."""
+        return (
+            self.src_port.to_bytes(2, "big")
+            + self.dst_port.to_bytes(2, "big")
+            + self.seq_num.to_bytes(4, "big")
+            + self.ack_num.to_bytes(4, "big")
+            + self.hlen.to_bytes(1, "big")
+            + self.flags.to_bytes(1, "big")
+            + self.window.to_bytes(2, "big")
+            + self.urgent.to_bytes(2, "big")
+            + self.data
+        )
+
+    def _calc_tcp_checksum(self) -> int:
+        """Calcula o checksum para segmento TCP simplificado (16 bits)."""
+        return sum(self._tcp_pseudo_header()) & 0xFFFF
+
+    def _to_tcp_bytes(self) -> bytes:
+        """Serializa um segmento TCP simplificado."""
+        header = struct.pack(
+            self.TCP_HEADER_FORMAT,
+            int(self.src_port),
+            int(self.dst_port),
+            int(self.seq_num),
+            int(self.ack_num),
+            int(self.hlen),
+            int(self.flags),
+            int(self.window),
+            int(self.checksum),
+            int(self.urgent),
+        )
+        return header + self.data
+
+    @classmethod
+    def _from_tcp_bytes(cls, raw: bytes) -> "Packet":
+        """Constrói um segmento TCP simplificado a partir de bytes."""
+        if len(raw) < cls.TCP_HEADER_SIZE:
+            raise ValueError("Raw too small for TCP header")
+        header = raw[: cls.TCP_HEADER_SIZE]
+        parsed = struct.unpack(cls.TCP_HEADER_FORMAT, header)
+        src_port, dst_port, seq_num, ack_num, hlen, flags, window, checksum, urgent = parsed
+        data = raw[cls.TCP_HEADER_SIZE :]
+        pkt = cls(
+            mode=cls.MODE_TCP,
+            src_port=src_port,
+            dst_port=dst_port,
+            seq_num=seq_num,
+            ack_num=ack_num,
+            flags=flags,
+            window=window,
+            urgent=urgent,
+            data=data,
+            checksum=checksum,
+        )
+        # hlen informado no header pode não corresponder ao que criamos; ajustar para visibilidade
+        pkt.hlen = int(hlen)
+        return pkt
+
+    # ---------------------- PUBLIC API -------------------------- #
+
+    def to_bytes(self) -> bytes:
+        """Serializa o pacote automaticamente conforme o modo."""
+        return self._to_rdt_bytes() if self.mode == self.MODE_RDT else self._to_tcp_bytes()
+
+    @classmethod
+    def from_bytes(cls, raw: bytes) -> "Packet":
+        """
+        Desserializa automaticamente detectando RDT ou TCP.
+
+        Estratégia:
+            - Se `raw` tem tamanho >= TCP_HEADER_SIZE, tentamos parsear como TCP.
+            - Depois de parsed as TCP, validamos `hlen` e checksum TCP. Se ambos válidos,
+              retornamos o TCP.
+            - Caso contrário (checksum inválido ou hlen inesperado), fazemos fallback para RDT.
+            - Isso evita interpretar um grande pacote RDT (com payload) como TCP inválido.
+        """
+        # Tentar interpretar como TCP (quando possível)
+        if len(raw) >= cls.TCP_HEADER_SIZE:
+            try:
+                pkt_tcp = cls._from_tcp_bytes(raw)
+                # hlen plausível? (no nosso formato simplificado esperamos 20)
+                if getattr(pkt_tcp, "hlen", None) == 20:
+                    # se checksum TCP casa, é TCP legítimo
+                    if not pkt_tcp.is_corrupt():
+                        return pkt_tcp
+                    # caso checksum não case, continuar e tentar RDT
+                # se hlen não bate, caímos para RDT
+            except Exception:
+                # parsing TCP falhou: fallback para RDT
+                pass
+
+        # fallback para RDT
+        return cls._from_rdt_bytes(raw)
+
+    def is_corrupt(self) -> bool:
+        """Retorna True se o checksum não bater."""
+        expected = self._calc_rdt_checksum() if self.mode == self.MODE_RDT else self._calc_tcp_checksum()
+        return int(self.checksum) != int(expected)
+
+    # ------------------- PACOTES AUXILIARES -------------------- #
+
+    @classmethod
+    def make_data(cls, seq_num: int, data: bytes | str) -> "Packet":
+        """Cria um pacote RDT de dados."""
+        return cls(mode=cls.MODE_RDT, seq_num=seq_num, flags=cls.FLAG_DATA, data=data)
+
+    @classmethod
+    def make_ack(cls, ack_num: int) -> "Packet":
+        """Cria um pacote RDT de ACK."""
+        return cls(mode=cls.MODE_RDT, ack_num=ack_num, flags=cls.FLAG_ACK, data=b"")
+
+    @classmethod
+    def make_tcp(
+        cls, src_port: int, dst_port: int, seq: int, ack: int, flags: int, window: int = 4096, data: bytes | str = b""
+    ) -> "Packet":
+        """Cria um segmento TCP simplificado."""
+        return cls(
+            mode=cls.MODE_TCP,
+            src_port=src_port,
+            dst_port=dst_port,
+            seq_num=seq,
+            ack_num=ack,
+            flags=flags,
+            window=window,
+            data=data,
+        )
         
-    # 2. Pacote parseado, mas corrompido (checksum falhou)
-    if info['corrupt']:
-        return info['type'], info['seq'], info['payload'], False
-        
-    # 3. Pacote parseado e válido
-    return info['type'], info['seq'], info['payload'], True
+    # ---------------------- DESCRIÇÃO HUMANA ------------------- #
+    
+    def describe(self) -> str:
+        """Retorna uma descrição legível do pacote para logs/debug."""
+        if self.mode == self.MODE_RDT:
+            flag_names = []
+            if self.flags & self.FLAG_DATA: flag_names.append("DATA")
+            if self.flags & self.FLAG_ACK:  flag_names.append("ACK")
+            if self.flags & self.FLAG_SYN:  flag_names.append("SYN")
+            if self.flags & self.FLAG_FIN:  flag_names.append("FIN")
+
+            flags_str = "|".join(flag_names) if flag_names else "NONE"
+            return f"RDT[{flags_str}] seq={self.seq_num} ack={self.ack_num} len={len(self.data)}"
+
+        # TCP
+        flag_names = []
+        if self.flags & self.TCP_FLAG_SYN: flag_names.append("SYN")
+        if self.flags & self.TCP_FLAG_ACK: flag_names.append("ACK")
+        if self.flags & self.TCP_FLAG_FIN: flag_names.append("FIN")
+        if self.flags & self.TCP_FLAG_PSH: flag_names.append("PSH")
+        if self.flags & self.TCP_FLAG_RST: flag_names.append("RST")
+
+        flags_str = "|".join(flag_names) if flag_names else "NONE"
+        return (
+            f"TCP[{flags_str}] src={self.src_port} dst={self.dst_port} "
+            f"seq={self.seq_num} ack={self.ack_num} win={self.window} len={len(self.data)}"
+        )
 
 
-def packet_header_size() -> int:
-    """
-    Retorna o tamanho do cabeçalho (em bytes).
-    """
-    return HEADER_SIZE
+    # --------------------- REPRESENTAÇÃO ----------------------- #
+
+    def __repr__(self):
+        if self.mode == self.MODE_RDT:
+            return f"Packet[RDT]({self.describe()}, checksum={self.checksum}, data_len={len(self.data)})"
+
+        return (
+            "Packet[TCP]({desc}, checksum={cs})"
+        ).format(
+            desc=self.describe(),
+            cs=self.checksum,
+        )
