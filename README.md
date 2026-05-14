@@ -1,7 +1,3 @@
-Com certeza\! Este é um **README.md** formatado usando **Markdown**, baseado nos detalhes fornecidos.
-
------
-
 # 🌐 EFC 02 – Implementação de Transferência Confiável de Dados (RDT, GBN e TCP Simplificado)
 
 Este projeto de **Redes de Computadores** implementa protocolos de comunicação confiável sobre a camada não confiável do **UDP** (User Datagram Protocol). O trabalho evolui através das fases dos protocolos RDT (**Reliable Data Transfer**) clássicos (2.0, 2.1 e 3.0), o protocolo de janela deslizante **Go-Back-N (GBN)**, e culmina em uma implementação funcional e simplificada do **TCP (Transmission Control Protocol)**.
@@ -138,7 +134,3 @@ python -m testes.test_fase3
   * KUROSE, James F.; ROSS, Keith W. **Computer Networking: A Top-Down Approach**. 8ª ed. Pearson, 2021.
   * RFC 793 — Transmission Control Protocol.
   * RFC 5681 — TCP Congestion Control.
-
------
-
-Gostaria que eu buscasse algum diagrama visual (como o diagrama de estados do RDT 3.0 ou o 3-way handshake do TCP) para complementar este README?
