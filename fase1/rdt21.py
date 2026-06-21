@@ -1,7 +1,9 @@
 """
 ===========================================================
-RDT 2.1 — Alternating Bit Protocol (UDP não confiável)
+Módulo: fase1/rdt21.py
 ===========================================================
+
+RDT 2.1 - Alternating Bit Protocol (UDP não confiável)
 
 Implementação do protocolo RDT 2.1, baseado em alternating-bit,
 utilizando um UnreliableChannel que simula perda e corrupção.
@@ -14,8 +16,9 @@ Diferente do RDT 2.0:
       do último ACK válido.
 
 Classes:
-    RDT21Sender   — Emissor (alternating-bit)
-    RDT21Receiver — Receptor (alternating-bit)
+    RDT21Sender   - Emissor (alternating-bit)
+    RDT21Receiver - Receptor (alternating-bit)
+===========================================================
 """
 
 from __future__ import annotations
@@ -179,10 +182,29 @@ class RDT21Receiver:
     def __init__(
         self,
         channel: UnreliableChannel,
-        logger: Optional[Logger] = None
+        logger: Optional[Logger] = None,
+        ack_channel: Optional[UnreliableChannel] = None,
     ) -> None:
-
+        """
+        Parameters
+        ----------
+        channel : UnreliableChannel
+            Canal usado para RECEBER os pacotes DATA do sender.
+        logger : Logger, optional
+            Logger. Se None, cria um logger padrão.
+        ack_channel : UnreliableChannel, optional
+            Canal usado para ENVIAR os ACKs de volta ao sender. Se
+            None (padrão, mantém compatibilidade com versões
+            anteriores), usa o mesmo `channel` para enviar o ACK -
+            o que significa que o ACK fica sujeito ao mesmo
+            loss_prob/corrupt_prob configurado para o canal de DATA.
+            Para que o ACK siga sua própria taxa de perda/corrupção
+            (ex.: testes que configuram corrupt_prob_ack
+            separadamente de corrupt_prob_data), passe aqui o canal
+            físico que de fato chega ao sender com essas taxas.
+        """
         self.channel = channel
+        self.ack_channel = ack_channel or channel
         self.logger = logger or Logger(prefix="RDT21-RECEIVER", origin="RECEIVER")
 
         self.expected_seq = 0
@@ -222,7 +244,7 @@ class RDT21Receiver:
                     flags=Packet.FLAG_ACK,
                     data=b""
                 )
-                self.channel.send(ack)
+                self.ack_channel.send(ack)
             return None
 
         # ----------------------------------------------------------
@@ -240,7 +262,7 @@ class RDT21Receiver:
                     flags=Packet.FLAG_ACK,
                     data=b""
                 )
-                self.channel.send(ack)
+                self.ack_channel.send(ack)
             return None
 
         # ----------------------------------------------------------
@@ -259,7 +281,7 @@ class RDT21Receiver:
             flags=Packet.FLAG_ACK,
             data=b""
         )
-        self.channel.send(ack)
+        self.ack_channel.send(ack)
         self.logger.send(f"ACK enviado para seq={self.expected_seq}.")
 
         # Atualiza estado

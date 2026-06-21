@@ -1,1 +1,0 @@
-delivered=200/200 elapsed=23.853s retransmissions=113 utilization=0.575656

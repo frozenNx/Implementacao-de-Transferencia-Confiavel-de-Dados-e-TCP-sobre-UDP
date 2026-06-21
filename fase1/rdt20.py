@@ -1,7 +1,9 @@
 """
 ===========================================================
-RDT 2.0 – Stop-and-Wait (UDP com canal não confiável)
+Módulo: fase1/rdt20.py
 ===========================================================
+
+RDT 2.0 - Stop-and-Wait (UDP com canal não confiável)
 
 Implementação da versão 2.0 do protocolo RDT (Reliable Data
 Transfer). O RDT 2.0 detecta corrupção usando checksum e
@@ -14,15 +16,18 @@ Características principais:
     - Usa UnreliableChannel que simula perda e corrupção.
 
 Classes:
-    RDT20Sender   – Emissor RDT 2.0.
-    RDT20Receiver – Receptor RDT 2.0.
+    RDT20Sender   - Emissor RDT 2.0.
+    RDT20Receiver - Receptor RDT 2.0.
+===========================================================
 """
+
+from __future__ import annotations
 
 import time
 from typing import List, Optional
 
-from utils.packet import Packet
 from utils.logger import Logger
+from utils.packet import Packet
 from utils.simulator import UnreliableChannel
 
 

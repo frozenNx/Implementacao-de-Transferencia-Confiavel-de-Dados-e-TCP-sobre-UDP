@@ -1,14 +1,15 @@
 """
 ===========================================================
-Arquivo: test_fase1.py
+Módulo: testes/test_fase1.py
 ===========================================================
+
 Descrição Geral:
     Testes automatizados da Fase 1 do projeto de RDT.
 
     São validados três protocolos:
-        • RDT 2.0  — Canal com corrupção (sem números de sequência)
-        • RDT 2.1  — Canal com corrupção + números de sequência
-        • RDT 3.0  — Canal com perda, atraso e timeout (Stop-and-Wait)
+        - RDT 2.0  - Canal com corrupção (sem números de sequência)
+        - RDT 2.1  - Canal com corrupção + números de sequência
+        - RDT 3.0  - Canal com perda, atraso e timeout (Stop-and-Wait)
 
     Os testes executam uma comunicação completa:
         - Sender envia N mensagens sequenciais
@@ -21,6 +22,9 @@ Descrição Geral:
 
     Observação:
         A execução via CLI é mantida exatamente como no arquivo original.
+
+Execução:
+    python -m testes.test_fase1
 ===========================================================
 """
 
@@ -135,14 +139,20 @@ def run_test_rdt20(num_messages=10, corrupt_prob=0.0, loss_prob=0.0):
         sender.send_message(m)
         time.sleep(0.01)
 
+    all_received = receiver.delivered == messages
+
     time.sleep(0.5)
     stop_event.set()
+
+    logger.info(
+        f"RESUMO: OK={all_received} | "
+        f"Retransmissões={sender.retransmissions}"
+    )
 
     sender_chan.close()
     receiver_chan.close()
     logger.close()
 
-    all_received = receiver.delivered == messages
     return all_received, sender.retransmissions, receiver.delivered
 
 
@@ -154,10 +164,10 @@ def run_test_rdt21(num_messages=10, corrupt_prob_data=0.0, corrupt_prob_ack=0.0)
     Executa teste funcional do RDT 2.1.
 
     Verifica:
-        • Alternância correta de seqnum
-        • Duplicação não permitida
-        • Retransmissões esperadas
-        • Cálculo de overhead médio por mensagem
+        - Alternância correta de seqnum
+        - Duplicação não permitida
+        - Retransmissões esperadas
+        - Cálculo de overhead médio por mensagem
 
     Returns
     -------
@@ -183,15 +193,38 @@ def run_test_rdt21(num_messages=10, corrupt_prob_data=0.0, corrupt_prob_ack=0.0)
 
     received = []
     retransmissions = 0
+    sender_done = threading.Event()
 
     def receiver_loop():
-        """Loop assíncrono do Receiver."""
+        """
+        Loop assíncrono do Receiver.
+
+        Observação importante:
+            Não basta parar assim que `len(received) == num_messages`.
+            Se o ACK da ÚLTIMA mensagem entregue for perdido ou
+            corrompido, o sender vai retransmitir aquele DATA - e se
+            esta thread já tiver encerrado naquele instante, não há
+            mais ninguém para responder com o ACK correto, e o sender
+            fica retransmitindo para sempre (foi exatamente esse o
+            travamento intermitente observado nesta fixture). Por
+            isso, após entregar a última mensagem esperada, a thread
+            continua viva por uma janela extra (aguardando
+            `sender_done` E um pequeno buffer de tempo) para conseguir
+            reenviar o último ACK em caso de retransmissão tardia.
+        """
         while len(received) < num_messages:
             data = receiver.receive()
             if data:
                 received.append(data.decode())
             else:
                 time.sleep(0.005)
+
+        # Janela de segurança: continua respondendo a possíveis
+        # retransmissões tardias do sender até ele sinalizar que já
+        # recebeu o ACK de tudo (sender_done) ou até um teto de tempo.
+        grace_deadline = time.time() + 3.0
+        while not sender_done.is_set() and time.time() < grace_deadline:
+            receiver.receive()  # reenvia ACK se for duplicado; no-op se vazio
 
     t = threading.Thread(target=receiver_loop, daemon=True)
     t.start()
@@ -204,7 +237,8 @@ def run_test_rdt21(num_messages=10, corrupt_prob_data=0.0, corrupt_prob_ack=0.0)
         retransmissions += sender.retransmissions - before
         time.sleep(0.01)
 
-    t.join(timeout=2.0)
+    sender_done.set()
+    t.join(timeout=4.0)
 
     # Overhead médio aproximado
     size_data = len(Packet.make_data(0, "X").to_bytes())
@@ -213,11 +247,17 @@ def run_test_rdt21(num_messages=10, corrupt_prob_data=0.0, corrupt_prob_ack=0.0)
     payload_bytes = sum(len(m.encode()) for m in messages)
     overhead = (total_bytes - payload_bytes) / num_messages
 
+    all_received = received == messages
+
+    logger.info(
+        f"RESUMO: OK={all_received} | Retransmissões={retransmissions} | "
+        f"Overhead={overhead:.2f}"
+    )
+
     chan_data.close()
     chan_ack.close()
     logger.close()
 
-    all_received = received == messages
     return all_received, retransmissions, received, overhead
 
 
@@ -245,20 +285,38 @@ def run_test_rdt30(num_messages=10):
 
     sender_chan = UnreliableChannel(
         sender_addr, receiver_addr, loss_prob=0.15,
-        corrupt_prob=0.0, logger=logger
+        corrupt_prob=0.0, delay_range=(0.05, 0.5), logger=logger
     )
     receiver_chan = UnreliableChannel(
         receiver_addr, sender_addr, loss_prob=0.15,
-        corrupt_prob=0.0, logger=logger
+        corrupt_prob=0.0, delay_range=(0.05, 0.5), logger=logger
     )
 
     sender = RDT30Sender(sender_chan)
     receiver = RDT30Receiver(receiver_chan)
 
     received = []
+    sender_done = threading.Event()
     start = time.time()
 
     def receiver_loop():
+        """
+        Loop assíncrono do Receiver.
+
+        Observação importante (mesma causa raiz já corrigida em
+        run_test_rdt21): não basta parar assim que
+        `len(received) == num_messages`. Se o ACK da ÚLTIMA mensagem
+        entregue for perdido (aqui loss_prob=0.15 em ambas direções,
+        então é um evento plausível, não raro), o sender vai
+        retransmitir aquele DATA - e se esta thread já tiver
+        encerrado naquele instante, não há mais ninguém para
+        responder com o ACK correto, e o sender fica retransmitindo
+        para sempre. Por isso, após entregar a última mensagem
+        esperada, a thread continua viva por uma janela extra
+        (aguardando `sender_done` e um pequeno buffer de tempo) para
+        conseguir reenviar o último ACK em caso de retransmissão
+        tardia.
+        """
         while len(received) < num_messages:
             msg = receiver.receive()
             if msg:
@@ -266,20 +324,36 @@ def run_test_rdt30(num_messages=10):
             else:
                 time.sleep(0.01)
 
-    threading.Thread(target=receiver_loop, daemon=True).start()
+        # Janela de segurança: continua respondendo a possíveis
+        # retransmissões tardias do sender até ele sinalizar que já
+        # recebeu o ACK de tudo (sender_done) ou até um teto de tempo.
+        grace_deadline = time.time() + 5.0
+        while not sender_done.is_set() and time.time() < grace_deadline:
+            receiver.receive()  # reenvia ACK se for duplicado; no-op se vazio
+
+    t = threading.Thread(target=receiver_loop, daemon=True)
+    t.start()
 
     for i in range(num_messages):
         sender.send(f"Mensagem {i}")
 
+    sender_done.set()
     end = time.time()
-
-    sender.close()
-    receiver_chan.close()
-    logger.close()
+    t.join(timeout=6.0)
 
     total_bytes = sum(len(m.encode()) for m in received)
     elapsed = max(end - start, 1e-6)
     throughput = total_bytes / elapsed
+
+    logger.info(
+        f"RESUMO: OK={len(received) == num_messages} | "
+        f"Retransmissões={sender.retransmissions} | "
+        f"Throughput={throughput:.2f} bytes/s"
+    )
+
+    sender.close()
+    receiver_chan.close()
+    logger.close()
 
     return received, sender.retransmissions, throughput
 

@@ -24,7 +24,7 @@ from typing import Optional
 
 class Packet:
     """
-    Representa um pacote RDT (fases 1–2) ou um segmento TCP
+    Representa um pacote RDT (fases 1-2) ou um segmento TCP
     simplificado (fase 3).
 
     Atributos do modo RDT:
@@ -276,6 +276,16 @@ class Packet:
     def make_ack(cls, ack_num: int) -> "Packet":
         """Cria um pacote RDT de ACK."""
         return cls(mode=cls.MODE_RDT, ack_num=ack_num, flags=cls.FLAG_ACK, data=b"")
+
+    @classmethod
+    def make_nak(cls, seq_num: int) -> "Packet":
+        """Cria um pacote RDT de NAK (reconhecimento negativo).
+
+        Usado pelo RDT 2.0 para solicitar retransmissão quando um pacote
+        corrompido é recebido. O campo ``seq_num`` indica o número de
+        sequência esperado (que *não* foi entregue corretamente).
+        """
+        return cls(mode=cls.MODE_RDT, seq_num=seq_num, flags=0, data=b"")
 
     @classmethod
     def make_tcp(
