@@ -1,0 +1,2 @@
+GBN: elapsed=2.328s delivered=1024 throughput=450389.99 retransmissions=0
+RDT3.0: elapsed=1.964s delivered=1024 throughput=533863.56 retransmissions=0

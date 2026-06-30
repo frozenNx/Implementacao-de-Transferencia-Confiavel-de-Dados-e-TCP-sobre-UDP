@@ -1,13 +1,17 @@
 """
 ===========================================================
-Arquivo: testes/test_fase2.py
+Módulo: testes/test_fase2.py
 ===========================================================
+
 Descrição:
-    Testes da Fase 2 – Implementação Go-Back-N (GBN) comparada
+    Testes da Fase 2 - Implementação Go-Back-N (GBN) comparada
     com RDT 3.0. Inclui:
-      - Teste de transferência de 1 MiB
-      - Teste com perda de 10%
-      - Teste de throughput variando janela (sweep)
+        - Teste de transferência de 1 MiB
+        - Teste com perda de 10%
+        - Teste de throughput variando janela (sweep)
+
+Execução:
+    python -m testes.test_fase2
 ===========================================================
 """
 
@@ -145,7 +149,7 @@ def _run_pair(sender, receiver, messages: List[bytes],
 
 
 # ============================================================
-#             Teste 1 – Transferência de 1 MiB
+#             Teste 1 - Transferência de 1 MiB
 # ============================================================
 def test_transfer_1mb_compare():
     logger = Logger(prefix="fase2_1mb", origin="TEST")
@@ -182,13 +186,6 @@ def test_transfer_1mb_compare():
 
     delivered_rdt, elapsed_rdt = _run_pair(rdt_sender, rdt_receiver, messages)
 
-    rdt_sender.close()
-    try:
-        ds.close(); as_.close()
-        dr.close(); ar.close()
-    except Exception:
-        pass
-
     throughput_rdt = sum(len(m) for m in delivered_rdt) / max(elapsed_rdt, 1e-9)
 
     # Registro em log
@@ -197,6 +194,13 @@ def test_transfer_1mb_compare():
     logger.info(f"GBN:   elapsed={elapsed_gbn:.3f}s  thr={throughput_gbn:.2f}B/s  retrans={gbn_sender.retransmissions}")
     logger.info(f"RDT3:  elapsed={elapsed_rdt:.3f}s  thr={throughput_rdt:.2f}B/s  retrans={rdt_sender.retransmissions}")
     logger.info("=" * 60)
+
+    rdt_sender.close()
+    try:
+        ds.close(); as_.close()
+        dr.close(); ar.close()
+    except Exception:
+        pass
 
     assert len(delivered_gbn) == num_messages
     assert len(delivered_rdt) == num_messages
@@ -212,7 +216,7 @@ def test_transfer_1mb_compare():
     print("[Resumo salvo em]", summary_path)
 
 # ============================================================
-#        Teste 2 – Perda de 10% (GBN)
+#        Teste 2 - Perda de 10% (GBN)
 # ============================================================
 def test_loss_10pct_check():
     logger = Logger(prefix="fase2_loss10", origin="TEST")
@@ -303,6 +307,13 @@ def test_throughput_vs_window():
 
     delivered_rdt, elapsed_rdt = _run_pair(rdt_sender, rdt_receiver, messages)
     throughput_rdt = sum(len(m) for m in delivered_rdt) / max(elapsed_rdt, 1e-9)
+
+    logger.info("=" * 60)
+    logger.info("Resumo Sweep Throughput vs Janela")
+    for N, thr, ret, d, e in results:
+        logger.info(f"GBN N={N}: thr={thr:.2f}B/s retrans={ret} delivered={d} elapsed={e:.3f}s")
+    logger.info(f"RDT3.0: thr={throughput_rdt:.2f}B/s delivered={len(delivered_rdt)} elapsed={elapsed_rdt:.3f}s")
+    logger.info("=" * 60)
 
     rdt_sender.close()
     try:

@@ -1,14 +1,22 @@
-# ============================================================
-# Módulo: fase2/gbn.py
-# Implementação Go-Back-N (GBN) para a Fase 2 do projeto.
-#
-# Características:
-#   - Janela deslizante de tamanho N
-#   - ACKs cumulativos
-#   - Timer único para o pacote base
-#   - Retransmissão de toda a janela no timeout
-#   - Compatível com utils.packet, utils.simulator e test_fase2.py
-# ============================================================
+"""
+===========================================================
+Módulo: fase2/gbn.py
+===========================================================
+
+Implementação Go-Back-N (GBN) para a Fase 2 do projeto.
+
+Características:
+    - Janela deslizante de tamanho N
+    - ACKs cumulativos
+    - Timer único para o pacote base
+    - Retransmissão de toda a janela no timeout
+    - Compatível com utils.packet, utils.simulator e test_fase2.py
+
+Classes:
+    GBNSender   - Emissor com janela deslizante
+    GBNReceiver - Receptor com entrega em ordem estrita
+===========================================================
+"""
 
 from __future__ import annotations
 
@@ -16,9 +24,9 @@ import threading
 import time
 from typing import Dict, Optional
 
+from utils.logger import Logger
 from utils.packet import Packet
 from utils.simulator import UnreliableChannel
-from utils.logger import Logger
 
 DEFAULT_WINDOW_SIZE = 5
 DEFAULT_TIMEOUT = 1.5
