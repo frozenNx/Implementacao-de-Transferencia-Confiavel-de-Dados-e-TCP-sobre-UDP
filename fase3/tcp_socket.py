@@ -1,19 +1,26 @@
 """
-fase3/tcp_socket.py — implementação final (PEP 8, docstrings)
+===========================================================
+Módulo: fase3/tcp_socket.py
+===========================================================
 
 TCP simplificado sobre UDP usado nos testes da Fase 3.
-Recursos:
-- Handshake 3-way (SYN, SYN-ACK, ACK)
-- Controle de fluxo por janela (window update)
-- Buffer fora-de-ordem (reordenação)
-- RTT estimado e timeout dinâmico
-- Retransmissão com backoff exponencial
-- Fast retransmit por 3 ACKs duplicados
 
-Observação
-----------
-Este módulo assume que `utils.packet.Packet` e `utils.logger.Logger`
-existem e expõem as interfaces usadas (make_tcp, from_bytes, flags, window, etc.)
+Características:
+    - Handshake 3-way (SYN, SYN-ACK, ACK)
+    - Controle de fluxo por janela (window update)
+    - Buffer fora-de-ordem (reordenação)
+    - RTT estimado e timeout dinâmico
+    - Retransmissão com backoff exponencial
+    - Fast retransmit por 3 ACKs duplicados
+
+Observação:
+    Este módulo assume que utils.packet.Packet e utils.logger.Logger
+    expõem as interfaces usadas (make_tcp, from_bytes, flags, window
+    etc.).
+
+Classes:
+    TCPSocket - Socket TCP simplificado sobre UDP
+===========================================================
 """
 
 from __future__ import annotations

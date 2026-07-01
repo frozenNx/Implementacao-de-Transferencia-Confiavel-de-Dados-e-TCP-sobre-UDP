@@ -1,12 +1,32 @@
 """
-Exemplo de cliente usando TCPSocket
+===========================================================
+Módulo: fase3/tcp_client.py
+===========================================================
+
+Aplicação de exemplo: cliente que utiliza TCPSocket (TCP
+simplificado sobre UDP) para trocar mensagens com o servidor
+definido em fase3/tcp_server.py.
+
+Fluxo:
+    - Conecta via three-way handshake (connect)
+    - Envia uma sequência de mensagens de teste
+    - Lê a resposta do servidor para cada mensagem
+    - Encerra a conexão via four-way handshake (close)
+
+Execução:
+    python -m fase3.tcp_client
+===========================================================
 """
 
-from tcp_socket import TCPSocket
+from __future__ import annotations
+
 import time
+
+from fase3.tcp_socket import TCPSocket
 
 
 def main():
+    """Conecta ao servidor, envia mensagens de teste e encerra a conexão."""
     client = TCPSocket()  # Porta local aleatória
     client.connect(("127.0.0.1", 12345))
     print("Conectado ao servidor.")

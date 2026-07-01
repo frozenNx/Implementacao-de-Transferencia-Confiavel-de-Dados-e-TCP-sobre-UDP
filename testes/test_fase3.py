@@ -1,18 +1,25 @@
 """
-Teste completo da Fase 3 (TCP simplificado sobre UDP).
+===========================================================
+Módulo: testes/test_fase3.py
+===========================================================
 
-Testa:
-    - Handshake (three-way)
-    - Transferência de dados (10KB e 1MB)
-    - Controle de fluxo (janela de recepção reduzida)
-    - Retransmissão simulada por perda de pacotes
-    - Encerramento (four-way)
-    - Gráfico de desempenho (throughput e RTT estimado pelo cliente)
+Descrição:
+    Teste completo da Fase 3 (TCP simplificado sobre UDP).
 
-Executar:
+    Testa:
+        - Handshake (three-way)
+        - Transferência de dados (10KB e 1MB)
+        - Controle de fluxo (janela de recepção reduzida)
+        - Retransmissão simulada por perda de pacotes
+        - Encerramento (four-way)
+        - Gráfico de desempenho (throughput e RTT estimado pelo cliente)
+
+    Observação:
+        Usa a implementação TCPSocket presente em fase3/tcp_socket.py.
+
+Execução:
     python -m testes.test_fase3
-
-OBS: Usa a implementação TCPSocket presente em fase3/tcp_socket.py
+===========================================================
 """
 
 import threading
