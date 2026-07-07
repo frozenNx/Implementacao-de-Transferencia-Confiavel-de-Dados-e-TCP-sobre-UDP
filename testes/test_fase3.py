@@ -29,6 +29,8 @@ import os
 import random
 import matplotlib.pyplot as plt
 
+from utils.logger import Logger
+
 # Diretório único para armazenar logs e gráficos
 OUT_DIR = "logs"
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -36,6 +38,8 @@ os.makedirs(OUT_DIR, exist_ok=True)
 # Permitir import dos módulos da fase3
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'fase3')))
 from fase3.tcp_socket import TCPSocket
+
+logger = Logger(prefix="fase3", origin="TEST")
 
 # --------------------------- Helpers ---------------------------
 
@@ -156,6 +160,10 @@ def run_transfer_test(data_bytes, server_port=8000, client_port=9000, drop_prob=
     except Exception:
         pass
 
+    # captura os contadores depois do close,é durante o close() que o TCPSocket espera o send_buffer esvaziar, e é nessa espera que a maior parte das retransmissões acontece (thread do timer aindarodando)
+    retransmissions = getattr(client, "total_retransmissions", 0)
+    retransmitted_bytes = getattr(client, "total_retransmitted_bytes", 0)
+
     t_srv.join(timeout=30.0)
 
     t1 = time.time()
@@ -164,6 +172,7 @@ def run_transfer_test(data_bytes, server_port=8000, client_port=9000, drop_prob=
     client_rtt = getattr(client, "estimated_rtt", None)
     received_len = len(getattr(server, "received", b""))
     success = (received_len == data_bytes)
+    overhead_pct = (retransmitted_bytes / bytes_sent * 100) if bytes_sent else 0.0
 
     try:
         server.close()
@@ -182,6 +191,9 @@ def run_transfer_test(data_bytes, server_port=8000, client_port=9000, drop_prob=
         "bytes_sent": bytes_sent,
         "bytes_received": received_len,
         "drop_prob": drop_prob,
+        "retransmissions": retransmissions,
+        "retransmitted_bytes": retransmitted_bytes,
+        "overhead_pct": overhead_pct,
     }
 
 
@@ -215,17 +227,26 @@ def run_flow_control_test(total_bytes=10240, recv_window=1024, server_port=8000,
 
     time.sleep(1.0 + total_bytes / 1e6)
     t1 = time.time()
-    throughput_val = mbps(sent, t1 - t0)
+    elapsed = t1 - t0
+    throughput_val = mbps(sent, elapsed)
     received_len = len(getattr(server, "received", b""))
 
     client.close()
     server.close()
 
+    retransmissions = getattr(client, "total_retransmissions", 0)
+    retransmitted_bytes = getattr(client, "total_retransmitted_bytes", 0)
+    overhead_pct = (retransmitted_bytes / sent * 100) if sent else 0.0
+
     return {
         "sent": sent,
         "received": received_len,
+        "elapsed": elapsed,
         "throughput_MBs": throughput_val,
         "recv_window": recv_window,
+        "retransmissions": retransmissions,
+        "retransmitted_bytes": retransmitted_bytes,
+        "overhead_pct": overhead_pct,
     }
 
 
@@ -239,26 +260,51 @@ def main():
     ok = run_handshake_test()
     print("Handshake OK?", ok)
     results["handshake_ok"] = ok
+    logger.info(f"RESUMO: teste=handshake | OK={ok}")
 
     print("\n[TEST 2] Transferência 10KB")
     res_10kb = run_transfer_test(10 * 1024)
     print(res_10kb)
     results["10KB"] = res_10kb
+    logger.info(
+        f"RESUMO: teste=10KB | OK={res_10kb['success']} | "
+        f"bytes_enviados={res_10kb['bytes_sent']} | bytes_recebidos={res_10kb['bytes_received']} | "
+        f"elapsed={res_10kb['elapsed']:.3f}s | throughput={res_10kb['throughput_MBs']:.4f}MB/s | "
+        f"RTT={(res_10kb['client_rtt'] or 0) * 1000:.1f}ms | Retransmissões={res_10kb['retransmissions']}"
+    )
 
     print("\n[TEST 3] Controle de fluxo (recv_window=1KB)")
     flow_res = run_flow_control_test(total_bytes=10 * 1024, recv_window=1024)
     print(flow_res)
     results["flow"] = flow_res
+    logger.info(
+        f"RESUMO: teste=flow_1KB | OK={flow_res['sent'] == flow_res['received']} | "
+        f"enviado={flow_res['sent']} | recebido={flow_res['received']} | "
+        f"elapsed={flow_res['elapsed']:.3f}s | throughput={flow_res['throughput_MBs']:.4f}MB/s | "
+        f"Retransmissões={flow_res['retransmissions']}"
+    )
 
     print("\n[TEST 4] Retransmissão com perda simulada (20%)")
     res_loss = run_transfer_test(50 * 1024, drop_prob=0.20)
     print(res_loss)
     results["loss_20"] = res_loss
+    logger.info(
+        f"RESUMO: teste=loss20 | OK={res_loss['success']} | "
+        f"bytes_enviados={res_loss['bytes_sent']} | bytes_recebidos={res_loss['bytes_received']} | "
+        f"elapsed={res_loss['elapsed']:.3f}s | throughput={res_loss['throughput_MBs']:.4f}MB/s | "
+        f"RTT={(res_loss['client_rtt'] or 0) * 1000:.1f}ms | Retransmissões={res_loss['retransmissions']}"
+    )
 
     print("\n[TEST 5] Desempenho - transfer 1MB")
     res_1mb = run_transfer_test(1024 * 1024)
     print(res_1mb)
     results["1MB"] = res_1mb
+    logger.info(
+        f"RESUMO: teste=1MB | OK={res_1mb['success']} | "
+        f"bytes_enviados={res_1mb['bytes_sent']} | bytes_recebidos={res_1mb['bytes_received']} | "
+        f"elapsed={res_1mb['elapsed']:.3f}s | throughput={res_1mb['throughput_MBs']:.4f}MB/s | "
+        f"RTT={(res_1mb['client_rtt'] or 0) * 1000:.1f}ms | Retransmissões={res_1mb['retransmissions']}"
+    )
 
     labels = ["10KB", "50KB_loss20%", "1MB"]
     throughputs = [
@@ -272,7 +318,6 @@ def main():
         results["1MB"]["client_rtt"] or 0,
     ]
 
-    import matplotlib.pyplot as plt
     plt.figure(figsize=(10, 4))
     plt.subplot(1, 2, 1)
     plt.bar(labels, throughputs)
@@ -285,15 +330,51 @@ def main():
     plt.title("RTT estimado pelo TCPSocket")
 
     plt.tight_layout()
-    
-    out_png = os.path.join(OUT_DIR,"fase3_desempenho.png")
+
+    out_png = os.path.join(OUT_DIR, "fase3_desempenho.png")
     plt.savefig(out_png, dpi=150)
-    print("\nGráfico salvo em: fase3_desempenho.png")
+    print("\nGráfico salvo em:", out_png)
 
     print("\n=== Resultados resumidos ===")
     for k, v in results.items():
         print(k, v)
 
+    # Resumo simples em .txt, mesmo padrão usado na Fase 2
+    # (transfer1mb_summary.txt, loss10_summary.txt, throughput_sweep_summary.txt)
+    summary_path = os.path.join(OUT_DIR, "fase3_resultados_summary.txt")
+    with open(summary_path, "w", encoding="utf-8") as f:
+        f.write("Fase 3 - Resultados Resumidos\n")
+        f.write(f"Handshake: OK={ok}\n\n")
+
+        f.write(
+            f"10KB: OK={res_10kb['success']} bytes_enviados={res_10kb['bytes_sent']} "
+            f"bytes_recebidos={res_10kb['bytes_received']} elapsed={res_10kb['elapsed']:.3f}s "
+            f"throughput={res_10kb['throughput_MBs']:.4f}MB/s "
+            f"RTT={(res_10kb['client_rtt'] or 0) * 1000:.1f}ms "
+            f"retransmissoes={res_10kb['retransmissions']}\n"
+        )
+        f.write(
+            f"Fluxo(1KB win): OK={flow_res['sent'] == flow_res['received']} "
+            f"enviado={flow_res['sent']} recebido={flow_res['received']} "
+            f"elapsed={flow_res['elapsed']:.3f}s throughput={flow_res['throughput_MBs']:.4f}MB/s "
+            f"retransmissoes={flow_res['retransmissions']}\n"
+        )
+        f.write(
+            f"Loss20%: OK={res_loss['success']} bytes_enviados={res_loss['bytes_sent']} "
+            f"bytes_recebidos={res_loss['bytes_received']} elapsed={res_loss['elapsed']:.3f}s "
+            f"throughput={res_loss['throughput_MBs']:.4f}MB/s "
+            f"RTT={(res_loss['client_rtt'] or 0) * 1000:.1f}ms "
+            f"retransmissoes={res_loss['retransmissions']}\n"
+        )
+        f.write(
+            f"1MB: OK={res_1mb['success']} bytes_enviados={res_1mb['bytes_sent']} "
+            f"bytes_recebidos={res_1mb['bytes_received']} elapsed={res_1mb['elapsed']:.3f}s "
+            f"throughput={res_1mb['throughput_MBs']:.4f}MB/s "
+            f"RTT={(res_1mb['client_rtt'] or 0) * 1000:.1f}ms "
+            f"retransmissoes={res_1mb['retransmissions']}\n"
+        )
+
+    print("[Resumo salvo em]", summary_path)
     print("\n✅ Testes da Fase 3 finalizados.")
 
 

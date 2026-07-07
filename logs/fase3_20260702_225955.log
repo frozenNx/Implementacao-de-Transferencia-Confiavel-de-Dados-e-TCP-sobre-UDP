@@ -1,0 +1,5 @@
+[22:59:55.330] [TEST     ] [INFO   ] RESUMO: teste=handshake | OK=True
+[22:59:55.550] [TEST     ] [INFO   ] RESUMO: teste=10KB | OK=True | bytes_enviados=10240 | bytes_recebidos=10240 | elapsed=0.152s | throughput=0.0672MB/s | RTT=55.7ms | Retransmissões=0
+[23:00:06.661] [TEST     ] [INFO   ] RESUMO: teste=flow_1KB | OK=True | enviado=10240 | recebido=10240 | elapsed=1.030s | throughput=0.0099MB/s | Retransmissões=0
+[23:00:08.963] [TEST     ] [INFO   ] RESUMO: teste=loss20 | OK=True | bytes_enviados=51200 | bytes_recebidos=51200 | elapsed=2.238s | throughput=0.0229MB/s | RTT=177.1ms | Retransmissões=69
+[23:00:10.904] [TEST     ] [INFO   ] RESUMO: teste=1MB | OK=True | bytes_enviados=1048576 | bytes_recebidos=1048576 | elapsed=1.876s | throughput=0.5591MB/s | RTT=1.6ms | Retransmissões=0

@@ -81,6 +81,10 @@ class TCPSocket:
         self.send_buffer: Dict[int, Dict] = {}
         self.recv_buffer: bytearray = bytearray()
 
+        # Contadores agregados de retransmissão (usados para logging/relatórios)
+        self.total_retransmissions: int = 0
+        self.total_retransmitted_bytes: int = 0
+
         # RTT / timeout
         self.estimated_rtt: float = 0.3
         self.dev_rtt: float = 0.15
@@ -674,6 +678,8 @@ class TCPSocket:
                                         # marca como retransmitido (atualiza timestamp e contador)
                                         self.send_buffer[oldest_seq]["time"] = time.time()
                                         self.send_buffer[oldest_seq]["retrans"] = entry.get("retrans", 0) + 1
+                                        self.total_retransmissions += 1
+                                        self.total_retransmitted_bytes += len(entry["data"])
                                     except Exception:
                                         pass
 
@@ -774,6 +780,8 @@ class TCPSocket:
                         if seq_key in self.send_buffer:
                             self.send_buffer[seq_key]["time"] = time.time()
                             self.send_buffer[seq_key]["retrans"] = entry.get("retrans", 0) + 1
+                            self.total_retransmissions += 1
+                            self.total_retransmitted_bytes += len(entry["data"])
 
                 with self._lock:
                     if not self.send_buffer:

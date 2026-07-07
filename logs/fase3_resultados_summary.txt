@@ -1,0 +1,7 @@
+Fase 3 - Resultados Resumidos
+Handshake: OK=True
+
+10KB: OK=True bytes_enviados=10240 bytes_recebidos=10240 elapsed=0.152s throughput=0.0672MB/s RTT=55.7ms retransmissoes=0
+Fluxo(1KB win): OK=True enviado=10240 recebido=10240 elapsed=1.030s throughput=0.0099MB/s retransmissoes=0
+Loss20%: OK=True bytes_enviados=51200 bytes_recebidos=51200 elapsed=2.238s throughput=0.0229MB/s RTT=177.1ms retransmissoes=69
+1MB: OK=True bytes_enviados=1048576 bytes_recebidos=1048576 elapsed=1.876s throughput=0.5591MB/s RTT=1.6ms retransmissoes=0
